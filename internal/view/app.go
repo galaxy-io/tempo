@@ -49,7 +49,7 @@ func NewAppWithProvider(provider temporal.Provider, defaultNamespace string) *Ap
 	a.setup()
 	// Set initial connection status based on provider
 	if provider != nil {
-		a.ui.Header().SetConnected(provider.IsConnected())
+		a.ui.StatsBar().SetConnected(provider.IsConnected())
 	}
 	return a
 }
@@ -128,7 +128,7 @@ func (a *App) Provider() temporal.Provider {
 // SetNamespace sets the current namespace context.
 func (a *App) SetNamespace(ns string) {
 	a.currentNS = ns
-	a.ui.Header().SetNamespace(ns)
+	a.ui.StatsBar().SetNamespace(ns)
 }
 
 // CurrentNamespace returns the current namespace.
@@ -194,7 +194,7 @@ func (a *App) connectionMonitor() {
 			if err != nil {
 				// Connection lost - update UI
 				a.ui.QueueUpdateDraw(func() {
-					a.ui.Header().SetConnected(false)
+					a.ui.StatsBar().SetConnected(false)
 				})
 
 				// Attempt reconnection with backoff
@@ -213,7 +213,7 @@ func (a *App) connectionMonitor() {
 
 				// Ensure UI shows connected (in case we just reconnected)
 				a.ui.QueueUpdateDraw(func() {
-					a.ui.Header().SetConnected(true)
+					a.ui.StatsBar().SetConnected(true)
 				})
 			}
 		}
@@ -235,7 +235,7 @@ func (a *App) attemptReconnect(backoff time.Duration) {
 
 	a.ui.QueueUpdateDraw(func() {
 		if err == nil {
-			a.ui.Header().SetConnected(true)
+			a.ui.StatsBar().SetConnected(true)
 			a.reconnecting = false
 		}
 		// If reconnection failed, the next connectionMonitor tick will retry
@@ -256,7 +256,6 @@ func (a *App) Stop() {
 }
 
 func (a *App) showHelp() {
-	// For now, just a simple message in the header
-	// A full modal can be added later
-	a.ui.Header().SetText(" Help: q=Quit  Esc/Backspace=Back  Enter=Select  ?=Help")
+	// TODO: Implement help modal
+	// For now, the key hints in the menu bar serve as help
 }
