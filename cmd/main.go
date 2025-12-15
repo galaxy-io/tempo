@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/atterpac/temportui/internal/config"
 	"github.com/atterpac/temportui/internal/temporal"
 	"github.com/atterpac/temportui/internal/ui"
 	"github.com/atterpac/temportui/internal/view"
@@ -24,6 +25,7 @@ var (
 	tlsCA         = flag.String("tls-ca", "", "Path to CA certificate")
 	tlsServerName = flag.String("tls-server-name", "", "Server name for TLS verification")
 	tlsSkipVerify = flag.Bool("tls-skip-verify", false, "Skip TLS verification (insecure)")
+	themeName     = flag.String("theme", "", "Theme name (overrides config file)")
 )
 
 const (
@@ -35,7 +37,29 @@ const (
 func main() {
 	flag.Parse()
 
-	config := temporal.ConnectionConfig{
+	// Load configuration from file
+	cfg, err := config.Load()
+	if err != nil {
+		// Config load error is non-fatal, use defaults
+		cfg = config.DefaultConfig()
+	}
+
+	// Determine theme: CLI flag overrides config file
+	theme := cfg.Theme
+	if *themeName != "" {
+		theme = *themeName
+	}
+
+	// Initialize theme system before any UI
+	if err := ui.InitTheme(theme); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to load theme %q: %v, using catppuccin-mocha\n", theme, err)
+		if err := ui.InitTheme("catppuccin-mocha"); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: failed to initialize theme: %v\n", err)
+			os.Exit(1)
+		}
+	}
+
+	connConfig := temporal.ConnectionConfig{
 		Address:       *address,
 		Namespace:     *namespace,
 		TLSCertPath:   *tlsCert,
@@ -46,7 +70,7 @@ func main() {
 	}
 
 	// Run connection with UI
-	provider, err := connectWithUI(config)
+	provider, err := connectWithUI(connConfig)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -66,19 +90,13 @@ func main() {
 func connectWithUI(config temporal.ConnectionConfig) (temporal.Provider, error) {
 	app := tview.NewApplication()
 
-	// Apply theme colors
-	tview.Styles.PrimitiveBackgroundColor = ui.ColorBg
-	tview.Styles.ContrastBackgroundColor = ui.ColorBgLight
-	tview.Styles.BorderColor = ui.ColorBorder
-	tview.Styles.TitleColor = ui.ColorAccent
-	tview.Styles.PrimaryTextColor = ui.ColorFg
-	tview.Styles.SecondaryTextColor = ui.ColorFgDim
+	// Note: Global tview.Styles are already set by ui.InitTheme() in main()
 
 	// Status display
 	statusText := tview.NewTextView().
 		SetDynamicColors(true).
 		SetTextAlign(tview.AlignCenter)
-	statusText.SetBackgroundColor(ui.ColorBg)
+	statusText.SetBackgroundColor(ui.ColorBg())
 
 	// Build layout
 	flex := tview.NewFlex().SetDirection(tview.FlexRow).
@@ -89,7 +107,7 @@ func connectWithUI(config temporal.ConnectionConfig) (temporal.Provider, error) 
 			AddItem(nil, 0, 1, false), // Right spacer
 			5, 0, false).
 		AddItem(nil, 0, 1, false) // Bottom spacer
-	flex.SetBackgroundColor(ui.ColorBg)
+	flex.SetBackgroundColor(ui.ColorBg())
 
 	// Result channels and sync
 	var provider temporal.Provider
@@ -101,15 +119,15 @@ func connectWithUI(config temporal.ConnectionConfig) (temporal.Provider, error) 
 
 	// setStatusText sets the status text content
 	setStatusText := func(msg string, isError bool) {
-		color := ui.TagAccent
+		color := ui.TagAccent()
 		if isError {
-			color = ui.TagFailed
+			color = ui.TagFailed()
 		}
 		statusText.SetText(fmt.Sprintf(
 			"\n[%s]%s temporal-tui[-]\n\n[%s]%s[-]\n\n[%s]Press 'q' to quit[-]",
-			ui.TagAccent, ui.IconWorkflow,
+			ui.TagAccent(), ui.IconWorkflow,
 			color, msg,
-			ui.TagFgDim,
+			ui.TagFgDim(),
 		))
 	}
 
