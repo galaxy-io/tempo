@@ -31,6 +31,10 @@ var (
 	ColorTableHdr = tcell.NewRGBColor(0xf5, 0xc2, 0xe7) // Pink
 	ColorKey      = tcell.NewRGBColor(0xcb, 0xa6, 0xf7) // Mauve
 	ColorCrumb    = tcell.NewRGBColor(0xf5, 0xc2, 0xe7) // Pink
+
+	// Panel colors
+	ColorPanelBorder = tcell.NewRGBColor(0x58, 0x5b, 0x70) // Surface2
+	ColorPanelTitle  = tcell.NewRGBColor(0xf5, 0xc2, 0xe7) // Pink
 )
 
 // Nerd Font icons (requires a Nerd Font installed)
@@ -156,4 +160,8 @@ const (
 	TagCompleted = "#a6e3a1" // Green
 	TagFailed    = "#f38ba8" // Red
 	TagCanceled  = "#fab387" // Peach
+
+	// Panel tags
+	TagPanelBorder = "#585b70" // Surface2
+	TagPanelTitle  = "#f5c2e7" // Pink
 )
