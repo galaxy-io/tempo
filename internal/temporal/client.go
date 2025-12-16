@@ -6,19 +6,68 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/atterpac/loom/internal/config"
 	commonpb "go.temporal.io/api/common/v1"
 	"go.temporal.io/api/enums/v1"
 	historypb "go.temporal.io/api/history/v1"
+	namespacepb "go.temporal.io/api/namespace/v1"
 	"go.temporal.io/api/taskqueue/v1"
 	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/client"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
+
+var (
+	logFile   *os.File
+	sdkLogger *fileLogger
+)
+
+// fileLogger writes logs to a file.
+type fileLogger struct {
+	logger *log.Logger
+}
+
+func (l *fileLogger) Debug(msg string, keyvals ...interface{}) {
+	l.logger.Printf("DEBUG: %s %v", msg, keyvals)
+}
+
+func (l *fileLogger) Info(msg string, keyvals ...interface{}) {
+	l.logger.Printf("INFO: %s %v", msg, keyvals)
+}
+
+func (l *fileLogger) Warn(msg string, keyvals ...interface{}) {
+	l.logger.Printf("WARN: %s %v", msg, keyvals)
+}
+
+func (l *fileLogger) Error(msg string, keyvals ...interface{}) {
+	l.logger.Printf("ERROR: %s %v", msg, keyvals)
+}
+
+// initLogFile sets up logging to a file in the config directory.
+func initLogFile() {
+	if logFile != nil {
+		return
+	}
+
+	logPath := filepath.Join(config.ConfigDir(), "loom.log")
+	f, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		// Fall back to discarding logs if we can't open the file
+		sdkLogger = &fileLogger{logger: log.New(os.Stderr, "", 0)}
+		return
+	}
+	logFile = f
+	log.SetOutput(f)
+	log.SetFlags(log.Ldate | log.Ltime | log.Lshortfile)
+	sdkLogger = &fileLogger{logger: log.New(f, "", log.Ldate|log.Ltime)}
+}
 
 // Client implements the Provider interface using the Temporal SDK.
 type Client struct {
@@ -29,15 +78,19 @@ type Client struct {
 }
 
 // NewClient creates a new Temporal SDK client with the given configuration.
-func NewClient(ctx context.Context, config ConnectionConfig) (*Client, error) {
+func NewClient(ctx context.Context, connConfig ConnectionConfig) (*Client, error) {
+	// Redirect logs to file instead of stdout
+	initLogFile()
+
 	opts := client.Options{
-		HostPort:  config.Address,
-		Namespace: config.Namespace,
+		HostPort:  connConfig.Address,
+		Namespace: connConfig.Namespace,
+		Logger:    sdkLogger,
 	}
 
 	// Configure TLS if any TLS options are provided
-	if config.TLSCertPath != "" || config.TLSCAPath != "" || config.TLSSkipVerify {
-		tlsConfig, err := buildTLSConfig(config)
+	if connConfig.TLSCertPath != "" || connConfig.TLSCAPath != "" || connConfig.TLSSkipVerify {
+		tlsConfig, err := buildTLSConfig(connConfig)
 		if err != nil {
 			return nil, fmt.Errorf("failed to configure TLS: %w", err)
 		}
@@ -51,7 +104,7 @@ func NewClient(ctx context.Context, config ConnectionConfig) (*Client, error) {
 
 	return &Client{
 		client:    c,
-		config:    config,
+		config:    connConfig,
 		connected: true,
 	}, nil
 }
@@ -142,6 +195,20 @@ func (c *Client) CheckConnection(ctx context.Context) error {
 
 // Reconnect attempts to re-establish a connection to the Temporal server.
 func (c *Client) Reconnect(ctx context.Context) error {
+	c.mu.RLock()
+	reconnConfig := c.config
+	c.mu.RUnlock()
+	return c.reconnectWithConfig(ctx, reconnConfig)
+}
+
+// ReconnectWithConfig reconnects using a new configuration.
+// This enables hot-swapping to a different Temporal server/namespace.
+func (c *Client) ReconnectWithConfig(ctx context.Context, newConfig ConnectionConfig) error {
+	return c.reconnectWithConfig(ctx, newConfig)
+}
+
+// reconnectWithConfig is the internal implementation for reconnection.
+func (c *Client) reconnectWithConfig(ctx context.Context, connConfig ConnectionConfig) error {
 	c.mu.Lock()
 	// Close existing client if any
 	if c.client != nil {
@@ -149,17 +216,17 @@ func (c *Client) Reconnect(ctx context.Context) error {
 		c.client = nil
 	}
 	c.connected = false
-	config := c.config
 	c.mu.Unlock()
 
 	opts := client.Options{
-		HostPort:  config.Address,
-		Namespace: config.Namespace,
+		HostPort:  connConfig.Address,
+		Namespace: connConfig.Namespace,
+		Logger:    sdkLogger,
 	}
 
 	// Configure TLS if any TLS options are provided
-	if config.TLSCertPath != "" || config.TLSCAPath != "" || config.TLSSkipVerify {
-		tlsConfig, err := buildTLSConfig(config)
+	if connConfig.TLSCertPath != "" || connConfig.TLSCAPath != "" || connConfig.TLSSkipVerify {
+		tlsConfig, err := buildTLSConfig(connConfig)
 		if err != nil {
 			return fmt.Errorf("failed to configure TLS: %w", err)
 		}
@@ -173,6 +240,7 @@ func (c *Client) Reconnect(ctx context.Context) error {
 
 	c.mu.Lock()
 	c.client = newClient
+	c.config = connConfig // Update stored config
 	c.connected = true
 	c.mu.Unlock()
 
@@ -225,6 +293,149 @@ func (c *Client) ListNamespaces(ctx context.Context) ([]Namespace, error) {
 	}
 
 	return namespaces, nil
+}
+
+// CreateNamespace registers a new namespace with the Temporal server.
+func (c *Client) CreateNamespace(ctx context.Context, req NamespaceCreateRequest) error {
+	if req.RetentionDays < 1 {
+		return fmt.Errorf("retention period must be at least 1 day")
+	}
+
+	retention := durationpb.New(time.Duration(req.RetentionDays) * 24 * time.Hour)
+
+	_, err := c.client.WorkflowService().RegisterNamespace(ctx, &workflowservice.RegisterNamespaceRequest{
+		Namespace:                        req.Name,
+		Description:                      req.Description,
+		OwnerEmail:                       req.OwnerEmail,
+		WorkflowExecutionRetentionPeriod: retention,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create namespace: %w", err)
+	}
+	return nil
+}
+
+// DescribeNamespace returns detailed information about a namespace.
+func (c *Client) DescribeNamespace(ctx context.Context, name string) (*NamespaceDetail, error) {
+	resp, err := c.client.WorkflowService().DescribeNamespace(ctx, &workflowservice.DescribeNamespaceRequest{
+		Namespace: name,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to describe namespace: %w", err)
+	}
+
+	info := resp.GetNamespaceInfo()
+	config := resp.GetConfig()
+	replication := resp.GetReplicationConfig()
+
+	retention := "N/A"
+	if config.GetWorkflowExecutionRetentionTtl() != nil {
+		retention = formatDuration(config.GetWorkflowExecutionRetentionTtl())
+	}
+
+	// Format archival info
+	historyArchival := formatArchivalState(config.GetHistoryArchivalState(), config.GetHistoryArchivalUri())
+	visibilityArchival := formatArchivalState(config.GetVisibilityArchivalState(), config.GetVisibilityArchivalUri())
+
+	// Extract cluster names
+	var clusters []string
+	for _, cluster := range replication.GetClusters() {
+		clusters = append(clusters, cluster.GetClusterName())
+	}
+
+	detail := &NamespaceDetail{
+		Namespace: Namespace{
+			Name:            info.GetName(),
+			State:           MapNamespaceState(info.GetState()),
+			RetentionPeriod: retention,
+			Description:     info.GetDescription(),
+			OwnerEmail:      info.GetOwnerEmail(),
+		},
+		ID:                 info.GetId(),
+		IsGlobalNamespace:  resp.GetIsGlobalNamespace(),
+		FailoverVersion:    resp.GetFailoverVersion(),
+		HistoryArchival:    historyArchival,
+		VisibilityArchival: visibilityArchival,
+		Clusters:           clusters,
+	}
+
+	// Parse timestamps if available
+	if info.GetData() != nil {
+		// Note: CreatedAt and UpdatedAt are not directly exposed in the API response
+		// They would need to be extracted from namespace info data if stored there
+	}
+
+	return detail, nil
+}
+
+// UpdateNamespace modifies an existing namespace's configuration.
+func (c *Client) UpdateNamespace(ctx context.Context, req NamespaceUpdateRequest) error {
+	// First describe to get current state
+	current, err := c.client.WorkflowService().DescribeNamespace(ctx, &workflowservice.DescribeNamespaceRequest{
+		Namespace: req.Name,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to get current namespace config: %w", err)
+	}
+
+	// Build update request preserving existing values where not specified
+	updateReq := &workflowservice.UpdateNamespaceRequest{
+		Namespace: req.Name,
+	}
+
+	// Update info fields
+	description := req.Description
+	ownerEmail := req.OwnerEmail
+	if description == "" {
+		description = current.GetNamespaceInfo().GetDescription()
+	}
+	if ownerEmail == "" {
+		ownerEmail = current.GetNamespaceInfo().GetOwnerEmail()
+	}
+	updateReq.UpdateInfo = &namespacepb.UpdateNamespaceInfo{
+		Description: description,
+		OwnerEmail:  ownerEmail,
+	}
+
+	// Update config if retention specified
+	if req.RetentionDays > 0 {
+		updateReq.Config = &namespacepb.NamespaceConfig{
+			WorkflowExecutionRetentionTtl: durationpb.New(time.Duration(req.RetentionDays) * 24 * time.Hour),
+		}
+	}
+
+	_, err = c.client.WorkflowService().UpdateNamespace(ctx, updateReq)
+	if err != nil {
+		return fmt.Errorf("failed to update namespace: %w", err)
+	}
+	return nil
+}
+
+// DeprecateNamespace marks a namespace as deprecated (soft delete).
+func (c *Client) DeprecateNamespace(ctx context.Context, name string) error {
+	_, err := c.client.WorkflowService().DeprecateNamespace(ctx, &workflowservice.DeprecateNamespaceRequest{
+		Namespace: name,
+	})
+	if err != nil {
+		return fmt.Errorf("failed to deprecate namespace: %w", err)
+	}
+	return nil
+}
+
+// formatArchivalState formats archival state and URI for display.
+func formatArchivalState(state enums.ArchivalState, uri string) string {
+	stateStr := "Disabled"
+	switch state {
+	case enums.ARCHIVAL_STATE_ENABLED:
+		stateStr = "Enabled"
+	case enums.ARCHIVAL_STATE_DISABLED:
+		stateStr = "Disabled"
+	}
+
+	if uri != "" {
+		return fmt.Sprintf("%s (%s)", stateStr, uri)
+	}
+	return stateStr
 }
 
 // ListWorkflows returns workflows for a namespace with optional filtering.
@@ -365,6 +576,278 @@ func (c *Client) GetWorkflowHistory(ctx context.Context, namespace, workflowID, 
 	}
 
 	return events, nil
+}
+
+// GetEnhancedWorkflowHistory returns event history with relational data for tree/timeline views.
+func (c *Client) GetEnhancedWorkflowHistory(ctx context.Context, namespace, workflowID, runID string) ([]EnhancedHistoryEvent, error) {
+	var events []EnhancedHistoryEvent
+	var nextPageToken []byte
+
+	for {
+		resp, err := c.client.WorkflowService().GetWorkflowExecutionHistory(ctx, &workflowservice.GetWorkflowExecutionHistoryRequest{
+			Namespace: namespace,
+			Execution: &commonpb.WorkflowExecution{
+				WorkflowId: workflowID,
+				RunId:      runID,
+			},
+			NextPageToken: nextPageToken,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to get workflow history: %w", err)
+		}
+
+		for _, event := range resp.GetHistory().GetEvents() {
+			he := extractEnhancedEvent(event)
+			events = append(events, he)
+		}
+
+		nextPageToken = resp.GetNextPageToken()
+		if len(nextPageToken) == 0 {
+			break
+		}
+	}
+
+	return events, nil
+}
+
+// extractEnhancedEvent extracts structured data from a history event for tree/timeline views.
+func extractEnhancedEvent(event *historypb.HistoryEvent) EnhancedHistoryEvent {
+	he := EnhancedHistoryEvent{
+		ID:      event.GetEventId(),
+		Type:    formatEventType(event.GetEventType().String()),
+		Time:    event.GetEventTime().AsTime(),
+		Details: extractEventDetails(event),
+	}
+
+	switch event.GetEventType() {
+	case enums.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED:
+		attrs := event.GetWorkflowExecutionStartedEventAttributes()
+		if attrs != nil {
+			if attrs.GetTaskQueue() != nil {
+				he.TaskQueue = attrs.GetTaskQueue().GetName()
+			}
+			if attrs.GetIdentity() != "" {
+				he.Identity = attrs.GetIdentity()
+			}
+			he.Attempt = attrs.GetAttempt()
+		}
+
+	case enums.EVENT_TYPE_WORKFLOW_TASK_SCHEDULED:
+		attrs := event.GetWorkflowTaskScheduledEventAttributes()
+		if attrs != nil && attrs.GetTaskQueue() != nil {
+			he.TaskQueue = attrs.GetTaskQueue().GetName()
+		}
+
+	case enums.EVENT_TYPE_WORKFLOW_TASK_STARTED:
+		attrs := event.GetWorkflowTaskStartedEventAttributes()
+		if attrs != nil {
+			he.ScheduledEventID = attrs.GetScheduledEventId()
+			he.Identity = attrs.GetIdentity()
+		}
+
+	case enums.EVENT_TYPE_WORKFLOW_TASK_COMPLETED:
+		attrs := event.GetWorkflowTaskCompletedEventAttributes()
+		if attrs != nil {
+			he.ScheduledEventID = attrs.GetScheduledEventId()
+			he.StartedEventID = attrs.GetStartedEventId()
+			he.Identity = attrs.GetIdentity()
+		}
+
+	case enums.EVENT_TYPE_WORKFLOW_TASK_TIMED_OUT:
+		attrs := event.GetWorkflowTaskTimedOutEventAttributes()
+		if attrs != nil {
+			he.ScheduledEventID = attrs.GetScheduledEventId()
+			he.StartedEventID = attrs.GetStartedEventId()
+		}
+
+	case enums.EVENT_TYPE_WORKFLOW_TASK_FAILED:
+		attrs := event.GetWorkflowTaskFailedEventAttributes()
+		if attrs != nil {
+			he.ScheduledEventID = attrs.GetScheduledEventId()
+			if attrs.GetFailure() != nil {
+				he.Failure = attrs.GetFailure().GetMessage()
+			}
+		}
+
+	case enums.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED:
+		attrs := event.GetActivityTaskScheduledEventAttributes()
+		if attrs != nil {
+			he.ActivityID = attrs.GetActivityId()
+			if attrs.GetActivityType() != nil {
+				he.ActivityType = attrs.GetActivityType().GetName()
+			}
+			if attrs.GetTaskQueue() != nil {
+				he.TaskQueue = attrs.GetTaskQueue().GetName()
+			}
+		}
+
+	case enums.EVENT_TYPE_ACTIVITY_TASK_STARTED:
+		attrs := event.GetActivityTaskStartedEventAttributes()
+		if attrs != nil {
+			he.ScheduledEventID = attrs.GetScheduledEventId()
+			he.Attempt = attrs.GetAttempt()
+			he.Identity = attrs.GetIdentity()
+			if attrs.GetLastFailure() != nil {
+				he.Failure = attrs.GetLastFailure().GetMessage()
+			}
+		}
+
+	case enums.EVENT_TYPE_ACTIVITY_TASK_COMPLETED:
+		attrs := event.GetActivityTaskCompletedEventAttributes()
+		if attrs != nil {
+			he.ScheduledEventID = attrs.GetScheduledEventId()
+			he.StartedEventID = attrs.GetStartedEventId()
+			he.Identity = attrs.GetIdentity()
+			if attrs.GetResult() != nil {
+				he.Result = formatPayloads(attrs.GetResult())
+			}
+		}
+
+	case enums.EVENT_TYPE_ACTIVITY_TASK_FAILED:
+		attrs := event.GetActivityTaskFailedEventAttributes()
+		if attrs != nil {
+			he.ScheduledEventID = attrs.GetScheduledEventId()
+			he.StartedEventID = attrs.GetStartedEventId()
+			if attrs.GetFailure() != nil {
+				he.Failure = attrs.GetFailure().GetMessage()
+			}
+		}
+
+	case enums.EVENT_TYPE_ACTIVITY_TASK_TIMED_OUT:
+		attrs := event.GetActivityTaskTimedOutEventAttributes()
+		if attrs != nil {
+			he.ScheduledEventID = attrs.GetScheduledEventId()
+			he.StartedEventID = attrs.GetStartedEventId()
+			if attrs.GetFailure() != nil {
+				he.Failure = attrs.GetFailure().GetMessage()
+			}
+		}
+
+	case enums.EVENT_TYPE_ACTIVITY_TASK_CANCEL_REQUESTED:
+		attrs := event.GetActivityTaskCancelRequestedEventAttributes()
+		if attrs != nil {
+			he.ScheduledEventID = attrs.GetScheduledEventId()
+		}
+
+	case enums.EVENT_TYPE_ACTIVITY_TASK_CANCELED:
+		attrs := event.GetActivityTaskCanceledEventAttributes()
+		if attrs != nil {
+			he.ScheduledEventID = attrs.GetScheduledEventId()
+			he.StartedEventID = attrs.GetStartedEventId()
+		}
+
+	case enums.EVENT_TYPE_TIMER_STARTED:
+		attrs := event.GetTimerStartedEventAttributes()
+		if attrs != nil {
+			he.TimerID = attrs.GetTimerId()
+		}
+
+	case enums.EVENT_TYPE_TIMER_FIRED:
+		attrs := event.GetTimerFiredEventAttributes()
+		if attrs != nil {
+			he.TimerID = attrs.GetTimerId()
+			he.StartedEventID = attrs.GetStartedEventId()
+		}
+
+	case enums.EVENT_TYPE_TIMER_CANCELED:
+		attrs := event.GetTimerCanceledEventAttributes()
+		if attrs != nil {
+			he.TimerID = attrs.GetTimerId()
+			he.StartedEventID = attrs.GetStartedEventId()
+		}
+
+	case enums.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED:
+		attrs := event.GetStartChildWorkflowExecutionInitiatedEventAttributes()
+		if attrs != nil {
+			he.ChildWorkflowID = attrs.GetWorkflowId()
+			if attrs.GetWorkflowType() != nil {
+				he.ChildWorkflowType = attrs.GetWorkflowType().GetName()
+			}
+			if attrs.GetTaskQueue() != nil {
+				he.TaskQueue = attrs.GetTaskQueue().GetName()
+			}
+		}
+
+	case enums.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_STARTED:
+		attrs := event.GetChildWorkflowExecutionStartedEventAttributes()
+		if attrs != nil {
+			he.InitiatedEventID = attrs.GetInitiatedEventId()
+			if attrs.GetWorkflowExecution() != nil {
+				he.ChildWorkflowID = attrs.GetWorkflowExecution().GetWorkflowId()
+			}
+			if attrs.GetWorkflowType() != nil {
+				he.ChildWorkflowType = attrs.GetWorkflowType().GetName()
+			}
+		}
+
+	case enums.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_COMPLETED:
+		attrs := event.GetChildWorkflowExecutionCompletedEventAttributes()
+		if attrs != nil {
+			he.InitiatedEventID = attrs.GetInitiatedEventId()
+			if attrs.GetWorkflowExecution() != nil {
+				he.ChildWorkflowID = attrs.GetWorkflowExecution().GetWorkflowId()
+			}
+			if attrs.GetResult() != nil {
+				he.Result = formatPayloads(attrs.GetResult())
+			}
+		}
+
+	case enums.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_FAILED:
+		attrs := event.GetChildWorkflowExecutionFailedEventAttributes()
+		if attrs != nil {
+			he.InitiatedEventID = attrs.GetInitiatedEventId()
+			if attrs.GetWorkflowExecution() != nil {
+				he.ChildWorkflowID = attrs.GetWorkflowExecution().GetWorkflowId()
+			}
+			if attrs.GetFailure() != nil {
+				he.Failure = attrs.GetFailure().GetMessage()
+			}
+		}
+
+	case enums.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_CANCELED:
+		attrs := event.GetChildWorkflowExecutionCanceledEventAttributes()
+		if attrs != nil {
+			he.InitiatedEventID = attrs.GetInitiatedEventId()
+			if attrs.GetWorkflowExecution() != nil {
+				he.ChildWorkflowID = attrs.GetWorkflowExecution().GetWorkflowId()
+			}
+		}
+
+	case enums.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_TIMED_OUT:
+		attrs := event.GetChildWorkflowExecutionTimedOutEventAttributes()
+		if attrs != nil {
+			he.InitiatedEventID = attrs.GetInitiatedEventId()
+			if attrs.GetWorkflowExecution() != nil {
+				he.ChildWorkflowID = attrs.GetWorkflowExecution().GetWorkflowId()
+			}
+		}
+
+	case enums.EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_TERMINATED:
+		attrs := event.GetChildWorkflowExecutionTerminatedEventAttributes()
+		if attrs != nil {
+			he.InitiatedEventID = attrs.GetInitiatedEventId()
+			if attrs.GetWorkflowExecution() != nil {
+				he.ChildWorkflowID = attrs.GetWorkflowExecution().GetWorkflowId()
+			}
+		}
+
+	case enums.EVENT_TYPE_SIGNAL_EXTERNAL_WORKFLOW_EXECUTION_INITIATED:
+		attrs := event.GetSignalExternalWorkflowExecutionInitiatedEventAttributes()
+		if attrs != nil && attrs.GetWorkflowExecution() != nil {
+			he.ChildWorkflowID = attrs.GetWorkflowExecution().GetWorkflowId()
+		}
+
+	case enums.EVENT_TYPE_EXTERNAL_WORKFLOW_EXECUTION_SIGNALED:
+		attrs := event.GetExternalWorkflowExecutionSignaledEventAttributes()
+		if attrs != nil {
+			he.InitiatedEventID = attrs.GetInitiatedEventId()
+			if attrs.GetWorkflowExecution() != nil {
+				he.ChildWorkflowID = attrs.GetWorkflowExecution().GetWorkflowId()
+			}
+		}
+	}
+
+	return he
 }
 
 // formatEventType cleans up the event type string for display
@@ -907,6 +1390,377 @@ func formatDuration(d *durationpb.Duration) string {
 		return "1 day"
 	}
 	return fmt.Sprintf("%d days", days)
+}
+
+// CancelWorkflow requests graceful cancellation of a workflow execution.
+func (c *Client) CancelWorkflow(ctx context.Context, namespace, workflowID, runID, reason string) error {
+	return c.client.CancelWorkflow(ctx, workflowID, runID)
+}
+
+// TerminateWorkflow forcefully terminates a workflow execution immediately.
+func (c *Client) TerminateWorkflow(ctx context.Context, namespace, workflowID, runID, reason string) error {
+	return c.client.TerminateWorkflow(ctx, workflowID, runID, reason)
+}
+
+// SignalWorkflow sends a signal to a running workflow execution.
+func (c *Client) SignalWorkflow(ctx context.Context, namespace, workflowID, runID, signalName string, input []byte) error {
+	return c.client.SignalWorkflow(ctx, workflowID, runID, signalName, input)
+}
+
+// DeleteWorkflow permanently deletes a workflow execution and its history.
+func (c *Client) DeleteWorkflow(ctx context.Context, namespace, workflowID, runID string) error {
+	_, err := c.client.WorkflowService().DeleteWorkflowExecution(ctx,
+		&workflowservice.DeleteWorkflowExecutionRequest{
+			Namespace: namespace,
+			WorkflowExecution: &commonpb.WorkflowExecution{
+				WorkflowId: workflowID,
+				RunId:      runID,
+			},
+		})
+	return err
+}
+
+// ResetWorkflow resets a workflow to a previous state, creating a new run.
+func (c *Client) ResetWorkflow(ctx context.Context, namespace, workflowID, runID string, eventID int64, reason string) (string, error) {
+	resp, err := c.client.WorkflowService().ResetWorkflowExecution(ctx, &workflowservice.ResetWorkflowExecutionRequest{
+		Namespace: namespace,
+		WorkflowExecution: &commonpb.WorkflowExecution{
+			WorkflowId: workflowID,
+			RunId:      runID,
+		},
+		Reason:                    reason,
+		WorkflowTaskFinishEventId: eventID,
+	})
+	if err != nil {
+		return "", err
+	}
+	return resp.GetRunId(), nil
+}
+
+// ListSchedules returns all schedules in a namespace.
+func (c *Client) ListSchedules(ctx context.Context, namespace string, opts ListOptions) ([]Schedule, string, error) {
+	pageSize := opts.PageSize
+	if pageSize <= 0 {
+		pageSize = 100
+	}
+
+	resp, err := c.client.ScheduleClient().List(ctx, client.ScheduleListOptions{
+		PageSize: pageSize,
+	})
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to list schedules: %w", err)
+	}
+
+	var schedules []Schedule
+	for resp.HasNext() {
+		entry, err := resp.Next()
+		if err != nil {
+			return nil, "", fmt.Errorf("failed to iterate schedules: %w", err)
+		}
+
+		schedule := Schedule{
+			ID:           entry.ID,
+			Paused:       entry.Paused,
+			Notes:        entry.Note,
+			WorkflowType: entry.WorkflowType.Name,
+		}
+
+		// Extract spec info
+		if entry.Spec != nil && len(entry.Spec.Intervals) > 0 {
+			schedule.Spec = formatScheduleSpec(entry.Spec)
+		}
+
+		// Recent and future actions
+		if len(entry.RecentActions) > 0 {
+			lastAction := entry.RecentActions[len(entry.RecentActions)-1]
+			t := lastAction.ActualTime
+			schedule.LastRunTime = &t
+		}
+		if len(entry.NextActionTimes) > 0 {
+			t := entry.NextActionTimes[0]
+			schedule.NextRunTime = &t
+		}
+
+		schedules = append(schedules, schedule)
+	}
+
+	return schedules, "", nil
+}
+
+// GetSchedule returns details for a specific schedule.
+func (c *Client) GetSchedule(ctx context.Context, namespace, scheduleID string) (*Schedule, error) {
+	handle := c.client.ScheduleClient().GetHandle(ctx, scheduleID)
+	desc, err := handle.Describe(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to describe schedule: %w", err)
+	}
+
+	schedule := &Schedule{
+		ID:     scheduleID,
+		Paused: desc.Schedule.State.Paused,
+		Notes:  desc.Schedule.State.Note,
+	}
+
+	// Extract workflow info from action
+	if desc.Schedule.Action != nil {
+		if startAction, ok := desc.Schedule.Action.(*client.ScheduleWorkflowAction); ok {
+			// Workflow is an interface{} representing the workflow type
+			if wfType, ok := startAction.Workflow.(string); ok {
+				schedule.WorkflowType = wfType
+			}
+			schedule.WorkflowID = startAction.ID
+			schedule.TaskQueue = startAction.TaskQueue
+		}
+	}
+
+	// Extract spec info
+	if desc.Schedule.Spec != nil {
+		schedule.Spec = formatScheduleSpec(desc.Schedule.Spec)
+	}
+
+	// Info from description
+	schedule.TotalActions = int64(desc.Info.NumActions)
+	if len(desc.Info.RecentActions) > 0 {
+		lastAction := desc.Info.RecentActions[len(desc.Info.RecentActions)-1]
+		t := lastAction.ActualTime
+		schedule.LastRunTime = &t
+	}
+	if len(desc.Info.NextActionTimes) > 0 {
+		t := desc.Info.NextActionTimes[0]
+		schedule.NextRunTime = &t
+	}
+
+	return schedule, nil
+}
+
+// PauseSchedule pauses a schedule.
+func (c *Client) PauseSchedule(ctx context.Context, namespace, scheduleID, reason string) error {
+	handle := c.client.ScheduleClient().GetHandle(ctx, scheduleID)
+	return handle.Pause(ctx, client.SchedulePauseOptions{
+		Note: reason,
+	})
+}
+
+// UnpauseSchedule unpauses a schedule.
+func (c *Client) UnpauseSchedule(ctx context.Context, namespace, scheduleID, reason string) error {
+	handle := c.client.ScheduleClient().GetHandle(ctx, scheduleID)
+	return handle.Unpause(ctx, client.ScheduleUnpauseOptions{
+		Note: reason,
+	})
+}
+
+// TriggerSchedule immediately triggers a scheduled workflow execution.
+func (c *Client) TriggerSchedule(ctx context.Context, namespace, scheduleID string) error {
+	handle := c.client.ScheduleClient().GetHandle(ctx, scheduleID)
+	return handle.Trigger(ctx, client.ScheduleTriggerOptions{})
+}
+
+// DeleteSchedule permanently deletes a schedule.
+func (c *Client) DeleteSchedule(ctx context.Context, namespace, scheduleID string) error {
+	handle := c.client.ScheduleClient().GetHandle(ctx, scheduleID)
+	return handle.Delete(ctx)
+}
+
+// formatScheduleSpec creates a human-readable schedule specification.
+func formatScheduleSpec(spec *client.ScheduleSpec) string {
+	if spec == nil {
+		return ""
+	}
+
+	var parts []string
+
+	// Check for cron expressions
+	if len(spec.CronExpressions) > 0 {
+		parts = append(parts, spec.CronExpressions[0])
+	}
+
+	// Check for intervals
+	if len(spec.Intervals) > 0 {
+		interval := spec.Intervals[0]
+		parts = append(parts, fmt.Sprintf("every %s", interval.Every))
+	}
+
+	// Check for calendars
+	if len(spec.Calendars) > 0 {
+		parts = append(parts, "calendar-based")
+	}
+
+	if len(parts) == 0 {
+		return "custom"
+	}
+
+	return strings.Join(parts, ", ")
+}
+
+// QueryWorkflow executes a query against a running workflow and returns the result.
+func (c *Client) QueryWorkflow(ctx context.Context, namespace, workflowID, runID, queryType string, args []byte) (*QueryResult, error) {
+	// Build query input if args provided
+	var queryArgs interface{}
+	if len(args) > 0 {
+		if err := json.Unmarshal(args, &queryArgs); err != nil {
+			// If not valid JSON, pass as raw string
+			queryArgs = string(args)
+		}
+	}
+
+	// Execute the query
+	response, err := c.client.QueryWorkflow(ctx, workflowID, runID, queryType, queryArgs)
+	if err != nil {
+		return &QueryResult{
+			QueryType: queryType,
+			Error:     err.Error(),
+		}, nil
+	}
+
+	// Decode the result
+	var result interface{}
+	if err := response.Get(&result); err != nil {
+		return &QueryResult{
+			QueryType: queryType,
+			Error:     fmt.Sprintf("failed to decode query result: %v", err),
+		}, nil
+	}
+
+	// Format result as JSON for display
+	resultJSON, err := json.MarshalIndent(result, "", "  ")
+	if err != nil {
+		return &QueryResult{
+			QueryType: queryType,
+			Result:    fmt.Sprintf("%v", result),
+		}, nil
+	}
+
+	return &QueryResult{
+		QueryType: queryType,
+		Result:    string(resultJSON),
+	}, nil
+}
+
+// CancelWorkflows cancels multiple workflows and returns results for each.
+func (c *Client) CancelWorkflows(ctx context.Context, namespace string, workflows []WorkflowIdentifier) ([]BatchResult, error) {
+	results := make([]BatchResult, len(workflows))
+
+	for i, wf := range workflows {
+		err := c.client.CancelWorkflow(ctx, wf.WorkflowID, wf.RunID)
+		results[i] = BatchResult{
+			WorkflowID: wf.WorkflowID,
+			RunID:      wf.RunID,
+			Success:    err == nil,
+		}
+		if err != nil {
+			results[i].Error = err.Error()
+		}
+	}
+
+	return results, nil
+}
+
+// TerminateWorkflows terminates multiple workflows and returns results for each.
+func (c *Client) TerminateWorkflows(ctx context.Context, namespace string, workflows []WorkflowIdentifier, reason string) ([]BatchResult, error) {
+	results := make([]BatchResult, len(workflows))
+
+	for i, wf := range workflows {
+		err := c.client.TerminateWorkflow(ctx, wf.WorkflowID, wf.RunID, reason)
+		results[i] = BatchResult{
+			WorkflowID: wf.WorkflowID,
+			RunID:      wf.RunID,
+			Success:    err == nil,
+		}
+		if err != nil {
+			results[i].Error = err.Error()
+		}
+	}
+
+	return results, nil
+}
+
+// GetResetPoints returns valid reset points for a workflow execution.
+func (c *Client) GetResetPoints(ctx context.Context, namespace, workflowID, runID string) ([]ResetPoint, error) {
+	// Get workflow history to find reset points
+	events, err := c.GetEnhancedWorkflowHistory(ctx, namespace, workflowID, runID)
+	if err != nil {
+		return nil, err
+	}
+
+	var resetPoints []ResetPoint
+
+	// Track activity/timer state for building descriptions
+	activityInfo := make(map[int64]string)  // scheduledEventID -> activity type
+	timerInfo := make(map[int64]string)     // startedEventID -> timer ID
+
+	for _, event := range events {
+		// Track activity scheduled events
+		if strings.Contains(event.Type, "ActivityTaskScheduled") {
+			activityInfo[event.ID] = event.ActivityType
+		}
+
+		// Track timer started events
+		if strings.Contains(event.Type, "TimerStarted") {
+			timerInfo[event.ID] = event.TimerID
+		}
+
+		// WorkflowTaskCompleted events are valid reset points
+		if strings.Contains(event.Type, "WorkflowTaskCompleted") {
+			resetPoints = append(resetPoints, ResetPoint{
+				EventID:     event.ID,
+				EventType:   event.Type,
+				Timestamp:   event.Time,
+				Description: fmt.Sprintf("Workflow task completed at event %d", event.ID),
+				Reason:      "Reset to this workflow task",
+			})
+		}
+
+		// ActivityTaskFailed - reset to before the failure
+		if strings.Contains(event.Type, "ActivityTaskFailed") {
+			actType := activityInfo[event.ScheduledEventID]
+			if actType == "" {
+				actType = "Unknown"
+			}
+			resetPoints = append(resetPoints, ResetPoint{
+				EventID:     event.ScheduledEventID - 1, // Reset to workflow task before activity was scheduled
+				EventType:   event.Type,
+				Timestamp:   event.Time,
+				Description: fmt.Sprintf("Activity '%s' failed: %s", actType, truncateString(event.Failure, 50)),
+				Reason:      "Reset to retry failed activity",
+			})
+		}
+
+		// ActivityTaskTimedOut - reset to before the timeout
+		if strings.Contains(event.Type, "ActivityTaskTimedOut") {
+			actType := activityInfo[event.ScheduledEventID]
+			if actType == "" {
+				actType = "Unknown"
+			}
+			resetPoints = append(resetPoints, ResetPoint{
+				EventID:     event.ScheduledEventID - 1,
+				EventType:   event.Type,
+				Timestamp:   event.Time,
+				Description: fmt.Sprintf("Activity '%s' timed out", actType),
+				Reason:      "Reset to retry timed out activity",
+			})
+		}
+
+		// WorkflowTaskFailed - this is a good reset point
+		if strings.Contains(event.Type, "WorkflowTaskFailed") {
+			resetPoints = append(resetPoints, ResetPoint{
+				EventID:     event.ScheduledEventID - 1,
+				EventType:   event.Type,
+				Timestamp:   event.Time,
+				Description: fmt.Sprintf("Workflow task failed: %s", truncateString(event.Failure, 50)),
+				Reason:      "Reset to retry failed workflow task",
+			})
+		}
+	}
+
+	return resetPoints, nil
+}
+
+// truncateString truncates a string to maxLen and adds ellipsis if needed.
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
 
 // Ensure Client implements Provider
