@@ -96,7 +96,8 @@ func (a *App) setup() {
 			frontPage == "date-range" ||
 			frontPage == "saved-filters" ||
 			frontPage == "save-filter" ||
-			frontPage == "diff-input" {
+			frontPage == "diff-input" ||
+			frontPage == "event-detail" {
 			return event // Let the modal handle it
 		}
 
