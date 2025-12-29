@@ -65,7 +65,7 @@ func NewWorkflowList(app *App, namespace string) *WorkflowList {
 }
 
 func (wl *WorkflowList) setup() {
-	wl.table.SetHeaders("WORKFLOW ID", "TYPE", "STATUS", "START TIME")
+	wl.table.SetHeaders("WORKFLOW ID", "STATUS", "TYPE", "START TIME")
 	wl.table.SetBorder(false)
 	wl.table.SetBackgroundColor(theme.Bg())
 	wl.SetBackgroundColor(theme.Bg())
@@ -151,6 +151,8 @@ func (wl *WorkflowList) buildLayout() {
 func (wl *WorkflowList) togglePreview() {
 	wl.showPreview = !wl.showPreview
 	wl.buildLayout()
+	// Repopulate table to recalculate column widths for new layout
+	wl.populateTable()
 }
 
 // RefreshTheme updates all component colors after a theme change.
@@ -352,7 +354,7 @@ func (wl *WorkflowList) populateTable() {
 	currentRow := wl.table.SelectedRow()
 
 	wl.table.ClearRows()
-	wl.table.SetHeaders("WORKFLOW ID", "TYPE", "STATUS", "START TIME")
+	wl.table.SetHeaders("WORKFLOW ID", "STATUS", "TYPE", "START TIME")
 
 	if len(wl.workflows) == 0 {
 		if len(wl.allWorkflows) == 0 {
@@ -366,12 +368,15 @@ func (wl *WorkflowList) populateTable() {
 
 	wl.leftPanel.SetContent(wl.table)
 
+	// Calculate dynamic column widths based on available space
+	idWidth, typeWidth := wl.calculateColumnWidths()
+
 	now := time.Now()
 	for _, w := range wl.workflows {
 		wl.table.AddStyledRowSimple(w.Status,
-			truncate(w.ID, 25),
-			truncate(w.Type, 15),
+			truncateIfNeeded(w.ID, idWidth),
 			w.Status,
+			truncateIfNeeded(w.Type, typeWidth),
 			formatRelativeTime(now, w.StartTime),
 		)
 	}
@@ -410,7 +415,7 @@ func (wl *WorkflowList) updateStats() {
 
 func (wl *WorkflowList) showError(err error) {
 	wl.table.ClearRows()
-	wl.table.SetHeaders("WORKFLOW ID", "TYPE", "STATUS", "START TIME")
+	wl.table.SetHeaders("WORKFLOW ID", "STATUS", "TYPE", "START TIME")
 	wl.table.AddRowWithColor(theme.Error(),
 		theme.IconError+" Error loading workflows",
 		err.Error(),
@@ -856,6 +861,89 @@ func truncate(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen-3] + "..."
+}
+
+// truncateIfNeeded only truncates if the string exceeds maxLen.
+// If maxLen is 0 or negative, returns the string unchanged.
+func truncateIfNeeded(s string, maxLen int) string {
+	if maxLen <= 0 || len(s) <= maxLen {
+		return s
+	}
+	if maxLen <= 3 {
+		return s[:maxLen]
+	}
+	return s[:maxLen-3] + "..."
+}
+
+// calculateColumnWidths determines optimal column widths based on available space.
+// Returns (idWidth, typeWidth) where 0 means no truncation needed.
+func (wl *WorkflowList) calculateColumnWidths() (int, int) {
+	// Calculate width based on parent flex and preview state
+	// We can't rely on leftPanel.GetInnerRect() as it may have stale dimensions
+	_, _, totalWidth, _ := wl.Flex.GetInnerRect()
+
+	var width int
+	if totalWidth > 0 {
+		if wl.showPreview {
+			// Left panel gets 3/5 of space when preview is shown
+			width = (totalWidth * 3) / 5
+		} else {
+			// Left panel gets full width when preview is hidden
+			width = totalWidth
+		}
+		// Account for panel border/padding (~4 chars)
+		width -= 4
+	}
+
+	// If no width available (not yet drawn), use conservative defaults
+	if width <= 0 {
+		return 25, 15
+	}
+
+	// Fixed column widths:
+	// STATUS: max 12 chars (for "TERMINATED" + padding)
+	// START TIME: max 12 chars (for "12mo ago" + padding)
+	// Column separators: roughly 2 chars between each of 4 columns = 6 chars
+	// Left margin/selection indicator: ~2 chars
+	const (
+		statusWidth    = 12
+		startTimeWidth = 12
+		separators     = 8
+		minIDWidth     = 15 // Minimum readable ID width
+		minTypeWidth   = 10 // Minimum readable type width
+	)
+
+	fixedWidth := statusWidth + startTimeWidth + separators
+	availableForVariable := width - fixedWidth
+
+	if availableForVariable <= 0 {
+		// Extremely narrow terminal, use minimums
+		return minIDWidth, minTypeWidth
+	}
+
+	// Priority: ID > Type
+	// Give ID 60% of variable space, Type 40%
+	idWidth := (availableForVariable * 60) / 100
+	typeWidth := availableForVariable - idWidth
+
+	// If we have plenty of space, don't truncate at all (return 0)
+	// Typical workflow IDs are ~36 chars (UUID), types vary widely
+	if idWidth >= 50 {
+		idWidth = 0 // No truncation needed for ID
+	}
+	if typeWidth >= 40 {
+		typeWidth = 0 // No truncation needed for Type
+	}
+
+	// Ensure minimums if we are truncating
+	if idWidth > 0 && idWidth < minIDWidth {
+		idWidth = minIDWidth
+	}
+	if typeWidth > 0 && typeWidth < minTypeWidth {
+		typeWidth = minTypeWidth
+	}
+
+	return idWidth, typeWidth
 }
 
 // Selection mode methods
