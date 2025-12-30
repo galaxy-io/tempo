@@ -13,7 +13,7 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 )
 
-replace github.com/atterpac/jig => ../jig
+// replace github.com/atterpac/jig => ../jig
 
 require (
 	code.gitea.io/sdk/gitea v0.22.1 // indirect
