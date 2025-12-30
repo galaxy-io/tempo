@@ -51,17 +51,17 @@ release:
   draft: false
   prerelease: auto
 
-# brews:
-#   - name: tempo
-#     repository:
-#       owner: galaxy-io
-#       name: homebrew-tap
-#       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
-#     directory: Formula
-#     homepage: "https://github.com/galaxy-io/tempo"
-#     description: "Terminal UI for Temporal workflow management"
-#     license: "MIT"
-#     install: |
-#       bin.install "tempo"
-#     test: |
-#       system "#{bin}/tempo", "--version"
+brews:
+  - name: tempo
+    repository:
+      owner: galaxy-io
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/galaxy-io/tempo"
+    description: "Terminal UI for Temporal workflow management"
+    license: "MIT"
+    install: |
+      bin.install "tempo"
+    test: |
+      system "#{bin}/tempo", "--version"
