@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"runtime"
+	"strings"
 
 	"github.com/creativeprojects/go-selfupdate"
 )
@@ -12,6 +13,16 @@ const (
 	repoOwner = "atterpac"
 	repoName  = "tempo"
 )
+
+// IsHomebrewInstall returns true if the binary was installed via Homebrew.
+func IsHomebrewInstall() bool {
+	exe, err := selfupdate.ExecutablePath()
+	if err != nil {
+		return false
+	}
+	// Homebrew installs to /opt/homebrew/Cellar or /usr/local/Cellar
+	return strings.Contains(exe, "homebrew") || strings.Contains(exe, "Cellar")
+}
 
 // UpdateInfo contains information about an available update.
 type UpdateInfo struct {

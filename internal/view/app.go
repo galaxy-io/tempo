@@ -432,6 +432,11 @@ func (a *App) Run() error {
 
 // checkForUpdates checks for updates and automatically applies them.
 func (a *App) checkForUpdates() {
+	// Skip auto-update for Homebrew installs - use `brew upgrade` instead
+	if update.IsHomebrewInstall() {
+		return
+	}
+
 	updater := update.NewUpdater()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
