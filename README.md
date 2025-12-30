@@ -1,12 +1,10 @@
-# Tempo
+# tempo
 
-A terminal UI client for [Temporal](https://temporal.io).
+A [Temporal](https://temporal.io) TUI that matches your rhythm
 
 <p align="center">
   <img src="./assets/tempo-demo.gif" alt="Tempo Demo" width="800">
 </p>
-
-
 
 ## Features
 
