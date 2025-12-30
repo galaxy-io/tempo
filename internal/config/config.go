@@ -60,6 +60,16 @@ type Config struct {
 	ActiveProfile string                      `yaml:"active_profile,omitempty"`
 	Profiles      map[string]ConnectionConfig `yaml:"profiles,omitempty"`
 	SavedFilters  []SavedFilter               `yaml:"saved_filters,omitempty"`
+	CheckUpdates  *bool                       `yaml:"check_updates,omitempty"`
+}
+
+// ShouldCheckUpdates returns whether update checking is enabled.
+// Defaults to true if not explicitly set.
+func (c *Config) ShouldCheckUpdates() bool {
+	if c.CheckUpdates == nil {
+		return true
+	}
+	return *c.CheckUpdates
 }
 
 // DefaultConfig returns a config with default values.

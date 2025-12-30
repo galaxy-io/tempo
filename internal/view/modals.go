@@ -10,6 +10,7 @@ import (
 	"github.com/atterpac/jig/theme/themes"
 	"github.com/atterpac/jig/util"
 	"github.com/atterpac/tempo/internal/config"
+	"github.com/atterpac/tempo/internal/update"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
@@ -48,7 +49,7 @@ func (m *SplashModal) setup() {
 
 [%s]Temporal Workflow Explorer[-]
 
-[%s]Version: 0.1.0[-]
+[%s]Version: %s[-]
 
 [%s]Navigate workflows, schedules, and task queues
 with a keyboard-driven interface.[-]
@@ -61,6 +62,7 @@ with a keyboard-driven interface.[-]
 		theme.TagAccent(),
 		theme.TagFg(),
 		theme.TagFgDim(),
+		update.Version,
 		theme.TagFg(),
 		theme.TagFgDim())
 

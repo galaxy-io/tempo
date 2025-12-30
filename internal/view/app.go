@@ -13,6 +13,7 @@ import (
 	"github.com/atterpac/jig/theme/themes"
 	"github.com/atterpac/tempo/internal/config"
 	"github.com/atterpac/tempo/internal/temporal"
+	"github.com/atterpac/tempo/internal/update"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
 )
@@ -29,6 +30,7 @@ type App struct {
 	app           *layout.App
 	statusBar     *layout.StatusBar
 	menu          *layout.Menu
+	toasts        *components.ToastManager
 	provider      temporal.Provider
 	namespaceList *NamespaceList
 	currentNS     string
@@ -101,6 +103,16 @@ func (a *App) buildApp() {
 			}
 			a.updateCrumbs()
 		},
+	})
+
+	// Create toast manager for notifications
+	a.toasts = components.NewToastManager(a.app.GetApplication())
+	a.toasts.SetPosition(components.ToastBottomRight)
+
+	// Wire up toast rendering as an overlay
+	a.app.GetApplication().SetAfterDrawFunc(func(screen tcell.Screen) {
+		w, h := screen.Size()
+		a.toasts.Draw(screen, w, h)
 	})
 }
 
@@ -409,7 +421,66 @@ func (a *App) Run() error {
 	if a.provider != nil && a.stopMonitor != nil {
 		go a.connectionMonitor()
 	}
+
+	// Check for updates if enabled
+	if a.config != nil && a.config.ShouldCheckUpdates() {
+		go a.checkForUpdates()
+	}
+
 	return a.app.Run()
+}
+
+// checkForUpdates checks for available updates and shows a toast notification.
+func (a *App) checkForUpdates() {
+	updater := update.NewUpdater()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	info, err := updater.CheckForUpdate(ctx)
+	if err != nil {
+		// Silent failure - don't bother user with update check errors
+		return
+	}
+
+	if !info.NeedsUpdate {
+		return
+	}
+
+	// Show update available toast with action
+	a.app.QueueUpdateDraw(func() {
+		a.toasts.ShowWithAction(
+			fmt.Sprintf("Update %s available", info.LatestVersion),
+			components.ToastInfo,
+			components.ToastAction{Label: "Update", Handler: func() {
+				go a.performUpdate(info)
+			}},
+			components.ToastAction{Label: "Dismiss", Handler: func() {}},
+		)
+	})
+}
+
+// performUpdate downloads and applies the update.
+func (a *App) performUpdate(info *update.UpdateInfo) {
+	updater := update.NewUpdater()
+
+	// Show downloading toast
+	a.app.QueueUpdateDraw(func() {
+		a.toasts.Info("Downloading update...")
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	err := updater.ApplyUpdate(ctx, info)
+
+	a.app.QueueUpdateDraw(func() {
+		if err != nil {
+			a.toasts.Error(fmt.Sprintf("Update failed: %v", err))
+		} else {
+			a.toasts.Success(fmt.Sprintf("Updated to %s! Please restart tempo", info.LatestVersion))
+		}
+	})
 }
 
 // connectionMonitor periodically checks the connection and attempts reconnection if needed.
