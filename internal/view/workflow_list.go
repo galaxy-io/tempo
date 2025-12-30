@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -247,7 +248,14 @@ func (wl *WorkflowList) loadData() {
 		defer cancel()
 
 		// Resolve time placeholders in the query
-		resolvedQuery := resolveTimePlaceholders(wl.visibilityQuery)
+		resolvedQuery, err := resolveTimePlaceholders(wl.visibilityQuery)
+		if err != nil {
+			wl.app.ShowToastError(fmt.Sprintf("Invalid query: %v", err))
+			wl.app.JigApp().QueueUpdateDraw(func() {
+				wl.setLoading(false)
+			})
+			return
+		}
 		opts := temporal.ListOptions{
 			PageSize: 100,
 			Query:    resolvedQuery,
@@ -1298,20 +1306,29 @@ func (wl *WorkflowList) showQueryTemplates() {
 		name  string
 		query string
 	}{
+		// Status filters
 		{"Running Workflows", "ExecutionStatus = 'Running'"},
 		{"Failed Workflows", "ExecutionStatus = 'Failed'"},
 		{"Completed Workflows", "ExecutionStatus = 'Completed'"},
 		{"Cancelled Workflows", "ExecutionStatus = 'Canceled'"},
 		{"Timed Out Workflows", "ExecutionStatus = 'TimedOut'"},
+		// Time-based filters
 		{"Started Today", "StartTime > $TODAY"},
-		{"Started This Hour", "StartTime > $HOUR_AGO"},
+		{"Started Yesterday", "StartTime > $YESTERDAY AND StartTime < $TODAY"},
+		{"Started This Week", "StartTime > $THIS_WEEK"},
+		{"Started Last Hour", "StartTime > $HOUR_AGO"},
+		{"Started Last 30 Min", "StartTime > $MINUTES_AGO_30"},
+		{"Started Last 7 Days", "StartTime > $DAYS_AGO_7"},
+		// Combined filters
 		{"Long Running (>1h)", "ExecutionStatus = 'Running' AND StartTime < $HOUR_AGO"},
+		{"Long Running (>6h)", "ExecutionStatus = 'Running' AND StartTime < $HOURS_AGO_6"},
+		{"Failed Today", "ExecutionStatus = 'Failed' AND StartTime > $TODAY"},
 	}
 
 	modal := components.NewModal(components.ModalConfig{
 		Title:    fmt.Sprintf("%s Query Templates", theme.IconInfo),
-		Width:    60,
-		Height:   18,
+		Width:    70,
+		Height:   24,
 		Backdrop: true,
 	})
 
@@ -1320,7 +1337,7 @@ func (wl *WorkflowList) showQueryTemplates() {
 	table.SetBorder(false)
 
 	for _, t := range templates {
-		table.AddRow(t.name, truncate(t.query, 35))
+		table.AddRow(t.name, truncate(t.query, 45))
 	}
 	table.SelectRow(0)
 
@@ -1581,9 +1598,95 @@ func (wl *WorkflowList) startDiff() {
 }
 
 // Helper functions moved from ui package
-func resolveTimePlaceholders(query string) string {
-	// Simple placeholder resolution - can be expanded
-	return query
+
+// resolveTimePlaceholders resolves time-based placeholders in Temporal visibility queries.
+// Supported placeholders (using local timezone):
+//   - $TODAY: Start of today (00:00:00)
+//   - $YESTERDAY: Start of yesterday (00:00:00)
+//   - $THIS_WEEK: Start of current week (Monday 00:00:00)
+//   - $HOUR_AGO: 1 hour ago
+//   - $HOURS_AGO_N: N hours ago (e.g., $HOURS_AGO_6)
+//   - $MINUTES_AGO_N: N minutes ago (e.g., $MINUTES_AGO_30)
+//   - $DAYS_AGO_N: N days ago at 00:00:00 (e.g., $DAYS_AGO_7)
+func resolveTimePlaceholders(query string) (string, error) {
+	now := time.Now()
+
+	// Simple placeholders
+	replacements := map[string]string{
+		"$TODAY":    startOfDay(now).Format(time.RFC3339),
+		"$YESTERDAY": startOfDay(now.AddDate(0, 0, -1)).Format(time.RFC3339),
+		"$THIS_WEEK": startOfWeek(now).Format(time.RFC3339),
+		"$HOUR_AGO": now.Add(-1 * time.Hour).Format(time.RFC3339),
+	}
+
+	result := query
+	for placeholder, value := range replacements {
+		result = strings.ReplaceAll(result, placeholder, "'"+value+"'")
+	}
+
+	// Pattern-based placeholders: $HOURS_AGO_N, $MINUTES_AGO_N, $DAYS_AGO_N
+	patterns := []struct {
+		prefix string
+		unit   time.Duration
+		isDate bool // If true, use start of day
+	}{
+		{"$HOURS_AGO_", time.Hour, false},
+		{"$MINUTES_AGO_", time.Minute, false},
+		{"$DAYS_AGO_", 24 * time.Hour, true},
+	}
+
+	for _, p := range patterns {
+		for {
+			idx := strings.Index(result, p.prefix)
+			if idx == -1 {
+				break
+			}
+
+			// Find the end of the number
+			endIdx := idx + len(p.prefix)
+			for endIdx < len(result) && result[endIdx] >= '0' && result[endIdx] <= '9' {
+				endIdx++
+			}
+
+			if endIdx == idx+len(p.prefix) {
+				return "", fmt.Errorf("invalid placeholder: %s (missing number)", p.prefix)
+			}
+
+			numStr := result[idx+len(p.prefix) : endIdx]
+			num, err := strconv.Atoi(numStr)
+			if err != nil {
+				return "", fmt.Errorf("invalid number in placeholder %s%s: %w", p.prefix, numStr, err)
+			}
+
+			var t time.Time
+			if p.isDate {
+				t = startOfDay(now.Add(-time.Duration(num) * p.unit))
+			} else {
+				t = now.Add(-time.Duration(num) * p.unit)
+			}
+
+			placeholder := p.prefix + numStr
+			result = strings.Replace(result, placeholder, "'"+t.Format(time.RFC3339)+"'", 1)
+		}
+	}
+
+	return result, nil
+}
+
+// startOfDay returns the start of the day (00:00:00) in local timezone.
+func startOfDay(t time.Time) time.Time {
+	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
+}
+
+// startOfWeek returns the start of the week (Monday 00:00:00) in local timezone.
+func startOfWeek(t time.Time) time.Time {
+	weekday := int(t.Weekday())
+	if weekday == 0 {
+		weekday = 7 // Sunday becomes 7
+	}
+	daysToMonday := weekday - 1
+	monday := t.AddDate(0, 0, -daysToMonday)
+	return startOfDay(monday)
 }
 
 func copyToClipboard(text string) error {
