@@ -465,6 +465,20 @@ func (a *App) checkForUpdates() {
 	})
 }
 
+// ShowToastError displays an error toast notification.
+func (a *App) ShowToastError(message string) {
+	a.app.QueueUpdateDraw(func() {
+		a.toasts.Error(message)
+	})
+}
+
+// ShowToastWarning displays a warning toast notification.
+func (a *App) ShowToastWarning(message string) {
+	a.app.QueueUpdateDraw(func() {
+		a.toasts.Warning(message)
+	})
+}
+
 // connectionMonitor periodically checks the connection and attempts reconnection if needed.
 func (a *App) connectionMonitor() {
 	ticker := time.NewTicker(connectionCheckInterval)
