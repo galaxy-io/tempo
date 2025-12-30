@@ -45,6 +45,14 @@ A terminal UI client for [Temporal](https://temporal.io).
 go install github.com/galaxy-io/tempo/cmd/tempo@latest
 ```
 
+### Brew
+
+Brew installed versions will not recieve auto-updates you must update with `brew update`
+
+```bash
+brew install galaxy-io/tap/tempo
+```
+
 ### Build Locally
 
 ```bash
