@@ -882,7 +882,7 @@ func (eh *EventHistory) showDetailModal() {
 		return event
 	})
 
-	eh.app.JigApp().Pages().AddPage("event-detail", modal, true, true)
+	eh.app.JigApp().Pages().Push(modal)
 	eh.app.JigApp().SetFocus(textView)
 }
 
@@ -1036,11 +1036,7 @@ func highlightValues(s string) string {
 
 // closeDetailModal closes the detail modal.
 func (eh *EventHistory) closeDetailModal() {
-	eh.app.JigApp().Pages().RemovePage("event-detail")
-	// Restore focus to current view through the view's Focus method
-	eh.Focus(func(p tview.Primitive) {
-		eh.app.JigApp().SetFocus(p)
-	})
+	eh.app.JigApp().Pages().DismissModal()
 }
 
 // prettyPrintJSON attempts to format a string as pretty JSON.

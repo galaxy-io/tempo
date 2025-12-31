@@ -328,11 +328,11 @@ func (sl *ScheduleList) showPauseConfirm() {
 	form.AddTextField("reason", "Reason", "Paused via tempo")
 	form.SetOnSubmit(func(values map[string]any) {
 		reason := values["reason"].(string)
-		sl.closeModal("pause-confirm")
+		sl.closeModal()
 		sl.executePauseSchedule(schedule.ID, reason)
 	})
 	form.SetOnCancel(func() {
-		sl.closeModal("pause-confirm")
+		sl.closeModal()
 	})
 
 	contentFlex.AddItem(infoText, 3, 0, false)
@@ -346,14 +346,14 @@ func (sl *ScheduleList) showPauseConfirm() {
 	modal.SetOnSubmit(func() {
 		values := form.GetValues()
 		reason := values["reason"].(string)
-		sl.closeModal("pause-confirm")
+		sl.closeModal()
 		sl.executePauseSchedule(schedule.ID, reason)
 	})
 	modal.SetOnCancel(func() {
-		sl.closeModal("pause-confirm")
+		sl.closeModal()
 	})
 
-	sl.app.JigApp().Pages().AddPage("pause-confirm", modal, true, true)
+	sl.app.JigApp().Pages().Push(modal)
 	sl.app.JigApp().SetFocus(form)
 }
 
@@ -380,11 +380,11 @@ func (sl *ScheduleList) showUnpauseConfirm(s *temporal.Schedule) {
 	form.AddTextField("reason", "Reason", "Unpaused via tempo")
 	form.SetOnSubmit(func(values map[string]any) {
 		reason := values["reason"].(string)
-		sl.closeModal("unpause-confirm")
+		sl.closeModal()
 		sl.executeUnpauseSchedule(s.ID, reason)
 	})
 	form.SetOnCancel(func() {
-		sl.closeModal("unpause-confirm")
+		sl.closeModal()
 	})
 
 	contentFlex.AddItem(infoText, 3, 0, false)
@@ -398,14 +398,14 @@ func (sl *ScheduleList) showUnpauseConfirm(s *temporal.Schedule) {
 	modal.SetOnSubmit(func() {
 		values := form.GetValues()
 		reason := values["reason"].(string)
-		sl.closeModal("unpause-confirm")
+		sl.closeModal()
 		sl.executeUnpauseSchedule(s.ID, reason)
 	})
 	modal.SetOnCancel(func() {
-		sl.closeModal("unpause-confirm")
+		sl.closeModal()
 	})
 
-	sl.app.JigApp().Pages().AddPage("unpause-confirm", modal, true, true)
+	sl.app.JigApp().Pages().Push(modal)
 	sl.app.JigApp().SetFocus(form)
 }
 
@@ -489,14 +489,14 @@ func (sl *ScheduleList) showTriggerConfirm() {
 		{Key: "Esc", Description: "Cancel"},
 	})
 	modal.SetOnSubmit(func() {
-		sl.closeModal("trigger-confirm")
+		sl.closeModal()
 		sl.executeTriggerSchedule(schedule.ID)
 	})
 	modal.SetOnCancel(func() {
-		sl.closeModal("trigger-confirm")
+		sl.closeModal()
 	})
 
-	sl.app.JigApp().Pages().AddPage("trigger-confirm", modal, true, true)
+	sl.app.JigApp().Pages().Push(modal)
 }
 
 func (sl *ScheduleList) executeTriggerSchedule(scheduleID string) {
@@ -557,11 +557,11 @@ This action cannot be undone.[-]
 		if confirm != schedule.ID {
 			return // Must match schedule ID
 		}
-		sl.closeModal("delete-confirm")
+		sl.closeModal()
 		sl.executeDeleteSchedule(schedule.ID)
 	})
 	form.SetOnCancel(func() {
-		sl.closeModal("delete-confirm")
+		sl.closeModal()
 	})
 
 	contentFlex.AddItem(warningText, 6, 0, false)
@@ -578,14 +578,14 @@ This action cannot be undone.[-]
 		if confirm != schedule.ID {
 			return
 		}
-		sl.closeModal("delete-confirm")
+		sl.closeModal()
 		sl.executeDeleteSchedule(schedule.ID)
 	})
 	modal.SetOnCancel(func() {
-		sl.closeModal("delete-confirm")
+		sl.closeModal()
 	})
 
-	sl.app.JigApp().Pages().AddPage("delete-confirm", modal, true, true)
+	sl.app.JigApp().Pages().Push(modal)
 	sl.app.JigApp().SetFocus(form)
 }
 
@@ -611,11 +611,8 @@ func (sl *ScheduleList) executeDeleteSchedule(scheduleID string) {
 	}()
 }
 
-func (sl *ScheduleList) closeModal(name string) {
-	sl.app.JigApp().Pages().RemovePage(name)
-	if current := sl.app.JigApp().Pages().Current(); current != nil {
-		sl.app.JigApp().SetFocus(current)
-	}
+func (sl *ScheduleList) closeModal() {
+	sl.app.JigApp().Pages().DismissModal()
 }
 
 // Name returns the view name.

@@ -773,12 +773,9 @@ func (m *InfoModal) InputHandler() func(*tcell.EventKey, func(tview.Primitive)) 
 func ShowErrorModal(app *layout.App, title, message string) {
 	modal := NewErrorModal(title, message)
 	modal.SetOnClose(func() {
-		app.Pages().RemovePage("error-modal")
-		if current := app.Pages().Current(); current != nil {
-			app.SetFocus(current)
-		}
+		app.Pages().DismissModal()
 	})
-	app.Pages().AddPage("error-modal", modal, true, true)
+	app.Pages().Push(modal)
 	app.SetFocus(modal)
 }
 
@@ -786,12 +783,9 @@ func ShowErrorModal(app *layout.App, title, message string) {
 func ShowInfoModal(app *layout.App, title, message string) {
 	modal := NewInfoModal(title, message)
 	modal.SetOnClose(func() {
-		app.Pages().RemovePage("info-modal")
-		if current := app.Pages().Current(); current != nil {
-			app.SetFocus(current)
-		}
+		app.Pages().DismissModal()
 	})
-	app.Pages().AddPage("info-modal", modal, true, true)
+	app.Pages().Push(modal)
 	app.SetFocus(modal)
 }
 

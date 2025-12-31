@@ -357,11 +357,11 @@ func (nd *NamespaceDetail) showEditForm() {
 			OwnerEmail:    values["ownerEmail"].(string),
 			RetentionDays: retentionDays,
 		}
-		nd.closeModal("edit-form")
+		nd.closeModal()
 		nd.showUpdateConfirm(updateReq)
 	})
 	form.SetOnCancel(func() {
-		nd.closeModal("edit-form")
+		nd.closeModal()
 	})
 
 	modal.SetContent(form)
@@ -384,14 +384,14 @@ func (nd *NamespaceDetail) showEditForm() {
 			OwnerEmail:    values["ownerEmail"].(string),
 			RetentionDays: retentionDays,
 		}
-		nd.closeModal("edit-form")
+		nd.closeModal()
 		nd.showUpdateConfirm(updateReq)
 	})
 	modal.SetOnCancel(func() {
-		nd.closeModal("edit-form")
+		nd.closeModal()
 	})
 
-	nd.app.JigApp().Pages().AddPage("edit-form", modal, true, true)
+	nd.app.JigApp().Pages().Push(modal)
 	nd.app.JigApp().SetFocus(form)
 }
 
@@ -429,14 +429,14 @@ func (nd *NamespaceDetail) showUpdateConfirm(req temporal.NamespaceUpdateRequest
 		{Key: "Esc", Description: "Cancel"},
 	})
 	modal.SetOnSubmit(func() {
-		nd.closeModal("update-confirm")
+		nd.closeModal()
 		nd.executeUpdate(req)
 	})
 	modal.SetOnCancel(func() {
-		nd.closeModal("update-confirm")
+		nd.closeModal()
 	})
 
-	nd.app.JigApp().Pages().AddPage("update-confirm", modal, true, true)
+	nd.app.JigApp().Pages().Push(modal)
 }
 
 func (nd *NamespaceDetail) executeUpdate(req temporal.NamespaceUpdateRequest) {
@@ -497,11 +497,11 @@ func (nd *NamespaceDetail) showDeprecateConfirm() {
 		if confirm != nd.namespace {
 			return // Must match namespace name
 		}
-		nd.closeModal("deprecate-confirm")
+		nd.closeModal()
 		nd.executeDeprecate()
 	})
 	form.SetOnCancel(func() {
-		nd.closeModal("deprecate-confirm")
+		nd.closeModal()
 	})
 
 	contentFlex.AddItem(warningText, 8, 0, false)
@@ -518,14 +518,14 @@ func (nd *NamespaceDetail) showDeprecateConfirm() {
 		if confirm != nd.namespace {
 			return
 		}
-		nd.closeModal("deprecate-confirm")
+		nd.closeModal()
 		nd.executeDeprecate()
 	})
 	modal.SetOnCancel(func() {
-		nd.closeModal("deprecate-confirm")
+		nd.closeModal()
 	})
 
-	nd.app.JigApp().Pages().AddPage("deprecate-confirm", modal, true, true)
+	nd.app.JigApp().Pages().Push(modal)
 	nd.app.JigApp().SetFocus(form)
 }
 
@@ -551,10 +551,6 @@ func (nd *NamespaceDetail) executeDeprecate() {
 	}()
 }
 
-func (nd *NamespaceDetail) closeModal(name string) {
-	nd.app.JigApp().Pages().RemovePage(name)
-	// Restore focus to current view
-	if current := nd.app.JigApp().Pages().Current(); current != nil {
-		nd.app.JigApp().SetFocus(current)
-	}
+func (nd *NamespaceDetail) closeModal() {
+	nd.app.JigApp().Pages().DismissModal()
 }

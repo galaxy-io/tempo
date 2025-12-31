@@ -637,11 +637,11 @@ func (wd *WorkflowDetail) showCancelConfirm() {
 	form.AddTextField("reason", "Reason (optional)", "Cancelled via tempo")
 	form.SetOnSubmit(func(values map[string]any) {
 		reason := values["reason"].(string)
-		wd.closeModal("cancel-confirm")
+		wd.closeModal()
 		wd.executeCancelWorkflow(reason)
 	})
 	form.SetOnCancel(func() {
-		wd.closeModal("cancel-confirm")
+		wd.closeModal()
 	})
 
 	modal.SetContent(form)
@@ -652,14 +652,14 @@ func (wd *WorkflowDetail) showCancelConfirm() {
 	modal.SetOnSubmit(func() {
 		values := form.GetValues()
 		reason := values["reason"].(string)
-		wd.closeModal("cancel-confirm")
+		wd.closeModal()
 		wd.executeCancelWorkflow(reason)
 	})
 	modal.SetOnCancel(func() {
-		wd.closeModal("cancel-confirm")
+		wd.closeModal()
 	})
 
-	wd.app.JigApp().Pages().AddPage("cancel-confirm", modal, true, true)
+	wd.app.JigApp().Pages().Push(modal)
 	wd.app.JigApp().SetFocus(form)
 }
 
@@ -716,11 +716,11 @@ func (wd *WorkflowDetail) showTerminateConfirm() {
 		if reason == "" {
 			return // Require a reason
 		}
-		wd.closeModal("terminate-confirm")
+		wd.closeModal()
 		wd.executeTerminateWorkflow(reason)
 	})
 	form.SetOnCancel(func() {
-		wd.closeModal("terminate-confirm")
+		wd.closeModal()
 	})
 
 	contentFlex.AddItem(warningText, 3, 0, false)
@@ -737,14 +737,14 @@ func (wd *WorkflowDetail) showTerminateConfirm() {
 		if reason == "" {
 			return
 		}
-		wd.closeModal("terminate-confirm")
+		wd.closeModal()
 		wd.executeTerminateWorkflow(reason)
 	})
 	modal.SetOnCancel(func() {
-		wd.closeModal("terminate-confirm")
+		wd.closeModal()
 	})
 
-	wd.app.JigApp().Pages().AddPage("terminate-confirm", modal, true, true)
+	wd.app.JigApp().Pages().Push(modal)
 	wd.app.JigApp().SetFocus(form)
 }
 
@@ -806,11 +806,11 @@ This action cannot be undone.[-]
 		if confirm != wd.workflowID {
 			return // Must match workflow ID
 		}
-		wd.closeModal("delete-confirm")
+		wd.closeModal()
 		wd.executeDeleteWorkflow()
 	})
 	form.SetOnCancel(func() {
-		wd.closeModal("delete-confirm")
+		wd.closeModal()
 	})
 
 	contentFlex.AddItem(warningText, 5, 0, false)
@@ -827,14 +827,14 @@ This action cannot be undone.[-]
 		if confirm != wd.workflowID {
 			return
 		}
-		wd.closeModal("delete-confirm")
+		wd.closeModal()
 		wd.executeDeleteWorkflow()
 	})
 	modal.SetOnCancel(func() {
-		wd.closeModal("delete-confirm")
+		wd.closeModal()
 	})
 
-	wd.app.JigApp().Pages().AddPage("delete-confirm", modal, true, true)
+	wd.app.JigApp().Pages().Push(modal)
 	wd.app.JigApp().SetFocus(form)
 }
 
@@ -883,11 +883,11 @@ func (wd *WorkflowDetail) showSignalInput() {
 			return // Require signal name
 		}
 		input := values["input"].(string)
-		wd.closeModal("signal-input")
+		wd.closeModal()
 		wd.executeSignalWorkflow(signalName, input)
 	})
 	form.SetOnCancel(func() {
-		wd.closeModal("signal-input")
+		wd.closeModal()
 	})
 
 	modal.SetContent(form)
@@ -903,14 +903,14 @@ func (wd *WorkflowDetail) showSignalInput() {
 			return
 		}
 		input := values["input"].(string)
-		wd.closeModal("signal-input")
+		wd.closeModal()
 		wd.executeSignalWorkflow(signalName, input)
 	})
 	modal.SetOnCancel(func() {
-		wd.closeModal("signal-input")
+		wd.closeModal()
 	})
 
-	wd.app.JigApp().Pages().AddPage("signal-input", modal, true, true)
+	wd.app.JigApp().Pages().Push(modal)
 	wd.app.JigApp().SetFocus(form)
 }
 
@@ -967,7 +967,7 @@ func (wd *WorkflowDetail) showResetSelector() {
 	loadingText.SetBackgroundColor(theme.Bg())
 	loadingText.SetText(fmt.Sprintf("[%s]Fetching reset points...[-]", theme.TagFgDim()))
 	loadingModal.SetContent(loadingText)
-	wd.app.JigApp().Pages().AddPage("reset-loading", loadingModal, true, true)
+	wd.app.JigApp().Pages().Push(loadingModal)
 
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -976,7 +976,7 @@ func (wd *WorkflowDetail) showResetSelector() {
 		resetPoints, err := provider.GetResetPoints(ctx, wd.app.CurrentNamespace(), wd.workflowID, wd.runID)
 
 		wd.app.JigApp().QueueUpdateDraw(func() {
-			wd.closeModal("reset-loading")
+			wd.closeModal()
 
 			if err != nil {
 				wd.showError(err)
@@ -1022,11 +1022,11 @@ func (wd *WorkflowDetail) showQuickResetModal(failurePoint temporal.ResetPoint, 
 	form := components.NewForm()
 	form.AddTextField("reason", "Reason", "Reset via tempo")
 	form.SetOnSubmit(func(values map[string]any) {
-		wd.closeModal("quick-reset")
+		wd.closeModal()
 		wd.executeResetWorkflow(failurePoint.EventID, values["reason"].(string))
 	})
 	form.SetOnCancel(func() {
-		wd.closeModal("quick-reset")
+		wd.closeModal()
 	})
 
 	contentFlex.AddItem(infoText, 6, 0, false)
@@ -1039,10 +1039,10 @@ func (wd *WorkflowDetail) showQuickResetModal(failurePoint temporal.ResetPoint, 
 		{Key: "Esc", Description: "Cancel"},
 	})
 	modal.SetOnCancel(func() {
-		wd.closeModal("quick-reset")
+		wd.closeModal()
 	})
 
-	wd.app.JigApp().Pages().AddPage("quick-reset", modal, true, true)
+	wd.app.JigApp().Pages().Push(modal)
 	wd.app.JigApp().SetFocus(form)
 }
 
@@ -1074,16 +1074,16 @@ func (wd *WorkflowDetail) showResetPicker(resetPoints []temporal.ResetPoint) {
 		case tcell.KeyEnter:
 			row := table.SelectedRow()
 			if row >= 0 && row < len(resetPoints) {
-				wd.closeModal("reset-picker")
+				wd.closeModal()
 				wd.showResetConfirm(resetPoints[row])
 			}
 			return nil
 		case tcell.KeyEscape:
-			wd.closeModal("reset-picker")
+			wd.closeModal()
 			return nil
 		case tcell.KeyRune:
 			if event.Rune() == 'q' {
-				wd.closeModal("reset-picker")
+				wd.closeModal()
 				return nil
 			}
 		}
@@ -1097,10 +1097,10 @@ func (wd *WorkflowDetail) showResetPicker(resetPoints []temporal.ResetPoint) {
 		{Key: "Esc", Description: "Cancel"},
 	})
 	modal.SetOnCancel(func() {
-		wd.closeModal("reset-picker")
+		wd.closeModal()
 	})
 
-	wd.app.JigApp().Pages().AddPage("reset-picker", modal, true, true)
+	wd.app.JigApp().Pages().Push(modal)
 	wd.app.JigApp().SetFocus(table)
 }
 
@@ -1134,11 +1134,11 @@ func (wd *WorkflowDetail) showResetConfirm(resetPoint temporal.ResetPoint) {
 	form := components.NewForm()
 	form.AddTextField("reason", "Reason", "Reset via tempo")
 	form.SetOnSubmit(func(values map[string]any) {
-		wd.closeModal("reset-confirm")
+		wd.closeModal()
 		wd.executeResetWorkflow(resetPoint.EventID, values["reason"].(string))
 	})
 	form.SetOnCancel(func() {
-		wd.closeModal("reset-confirm")
+		wd.closeModal()
 	})
 
 	contentFlex.AddItem(infoText, 7, 0, false)
@@ -1151,14 +1151,14 @@ func (wd *WorkflowDetail) showResetConfirm(resetPoint temporal.ResetPoint) {
 	})
 	modal.SetOnSubmit(func() {
 		values := form.GetValues()
-		wd.closeModal("reset-confirm")
+		wd.closeModal()
 		wd.executeResetWorkflow(resetPoint.EventID, values["reason"].(string))
 	})
 	modal.SetOnCancel(func() {
-		wd.closeModal("reset-confirm")
+		wd.closeModal()
 	})
 
-	wd.app.JigApp().Pages().AddPage("reset-confirm", modal, true, true)
+	wd.app.JigApp().Pages().Push(modal)
 	wd.app.JigApp().SetFocus(form)
 }
 
@@ -1212,21 +1212,17 @@ func (wd *WorkflowDetail) showResetError(message string) {
 		{Key: "Enter/Esc", Description: "Close"},
 	})
 	modal.SetOnSubmit(func() {
-		wd.closeModal("reset-error")
+		wd.closeModal()
 	})
 	modal.SetOnCancel(func() {
-		wd.closeModal("reset-error")
+		wd.closeModal()
 	})
 
-	wd.app.JigApp().Pages().AddPage("reset-error", modal, true, true)
+	wd.app.JigApp().Pages().Push(modal)
 }
 
-func (wd *WorkflowDetail) closeModal(name string) {
-	wd.app.JigApp().Pages().RemovePage(name)
-	// Restore focus to current view
-	if current := wd.app.JigApp().Pages().Current(); current != nil {
-		wd.app.JigApp().SetFocus(current)
-	}
+func (wd *WorkflowDetail) closeModal() {
+	wd.app.JigApp().Pages().DismissModal()
 }
 
 func (wd *WorkflowDetail) showQueryInput() {
@@ -1251,11 +1247,11 @@ func (wd *WorkflowDetail) showQueryInput() {
 			return
 		}
 		args := values["args"].(string)
-		wd.closeModal("query-input")
+		wd.closeModal()
 		wd.executeQuery(queryType, args)
 	})
 	form.SetOnCancel(func() {
-		wd.closeModal("query-input")
+		wd.closeModal()
 	})
 
 	modal.SetContent(form)
@@ -1274,14 +1270,14 @@ func (wd *WorkflowDetail) showQueryInput() {
 			return
 		}
 		args := values["args"].(string)
-		wd.closeModal("query-input")
+		wd.closeModal()
 		wd.executeQuery(queryType, args)
 	})
 	modal.SetOnCancel(func() {
-		wd.closeModal("query-input")
+		wd.closeModal()
 	})
 
-	wd.app.JigApp().Pages().AddPage("query-input", modal, true, true)
+	wd.app.JigApp().Pages().Push(modal)
 	wd.app.JigApp().SetFocus(form)
 }
 
@@ -1348,7 +1344,7 @@ func (wd *WorkflowDetail) showQueryResult(queryType, result string) {
 	resultView.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
 		case tcell.KeyEscape:
-			wd.closeModal("query-result")
+			wd.closeModal()
 			return nil
 		case tcell.KeyDown:
 			row, col := resultView.GetScrollOffset()
@@ -1392,7 +1388,7 @@ func (wd *WorkflowDetail) showQueryResult(queryType, result string) {
 				}()
 				return nil
 			case 'q':
-				wd.closeModal("query-result")
+				wd.closeModal()
 				return nil
 			}
 		}
@@ -1406,10 +1402,10 @@ func (wd *WorkflowDetail) showQueryResult(queryType, result string) {
 		{Key: "Esc", Description: "Close"},
 	})
 	modal.SetOnCancel(func() {
-		wd.closeModal("query-result")
+		wd.closeModal()
 	})
 
-	wd.app.JigApp().Pages().AddPage("query-result", modal, true, true)
+	wd.app.JigApp().Pages().Push(modal)
 	wd.app.JigApp().SetFocus(resultView)
 }
 
@@ -1433,13 +1429,13 @@ func (wd *WorkflowDetail) showQueryError(queryType, errMsg string) {
 		{Key: "Enter/Esc", Description: "Close"},
 	})
 	modal.SetOnSubmit(func() {
-		wd.closeModal("query-error")
+		wd.closeModal()
 	})
 	modal.SetOnCancel(func() {
-		wd.closeModal("query-error")
+		wd.closeModal()
 	})
 
-	wd.app.JigApp().Pages().AddPage("query-error", modal, true, true)
+	wd.app.JigApp().Pages().Push(modal)
 }
 
 // getSelectedEventDetails returns the details for the currently selected event.
@@ -1620,13 +1616,13 @@ func (wd *WorkflowDetail) showEventDetailModal() {
 		return event
 	})
 
-	wd.app.JigApp().Pages().AddPage("event-detail-modal", modal, true, true)
+	wd.app.JigApp().Pages().Push(modal)
 	wd.app.JigApp().SetFocus(detailView)
 }
 
 // closeEventDetailModal closes the event detail modal.
 func (wd *WorkflowDetail) closeEventDetailModal() {
-	wd.app.JigApp().Pages().RemovePage("event-detail-modal")
+	wd.app.JigApp().Pages().DismissModal()
 	wd.app.JigApp().SetFocus(wd.eventTable)
 }
 
@@ -1928,7 +1924,7 @@ func (wd *WorkflowDetail) showIOModal() {
 	inputView.SetInputCapture(inputHandler)
 	outputView.SetInputCapture(inputHandler)
 
-	wd.app.JigApp().Pages().AddPage("io-modal", modal, true, true)
+	wd.app.JigApp().Pages().Push(modal)
 	wd.app.JigApp().SetFocus(inputView)
 }
 
@@ -1947,6 +1943,6 @@ func formatIOContent(label, content string) string {
 
 // closeIOModal closes the IO modal.
 func (wd *WorkflowDetail) closeIOModal() {
-	wd.app.JigApp().Pages().RemovePage("io-modal")
+	wd.app.JigApp().Pages().DismissModal()
 	wd.app.JigApp().SetFocus(wd.eventTable)
 }

@@ -243,11 +243,11 @@ func (wd *WorkflowDiff) promptWorkflowInput(isLeft bool) {
 			return
 		}
 		runID := values["runID"].(string)
-		wd.closeModal("workflow-input")
+		wd.closeModal()
 		wd.loadWorkflow(isLeft, workflowID, runID)
 	})
 	form.SetOnCancel(func() {
-		wd.closeModal("workflow-input")
+		wd.closeModal()
 	})
 
 	modal.SetContent(form)
@@ -263,24 +263,19 @@ func (wd *WorkflowDiff) promptWorkflowInput(isLeft bool) {
 			return
 		}
 		runID := values["runID"].(string)
-		wd.closeModal("workflow-input")
+		wd.closeModal()
 		wd.loadWorkflow(isLeft, workflowID, runID)
 	})
 	modal.SetOnCancel(func() {
-		wd.closeModal("workflow-input")
+		wd.closeModal()
 	})
 
-	wd.app.JigApp().Pages().AddPage("workflow-input", modal, true, true)
+	wd.app.JigApp().Pages().Push(modal)
 	wd.app.JigApp().SetFocus(form)
 }
 
-func (wd *WorkflowDiff) closeModal(name string) {
-	wd.app.JigApp().Pages().RemovePage(name)
-	if wd.focusLeft {
-		wd.app.JigApp().SetFocus(wd.leftEvents)
-	} else {
-		wd.app.JigApp().SetFocus(wd.rightEvents)
-	}
+func (wd *WorkflowDiff) closeModal() {
+	wd.app.JigApp().Pages().DismissModal()
 }
 
 func (wd *WorkflowDiff) loadWorkflow(isLeft bool, workflowID, runID string) {

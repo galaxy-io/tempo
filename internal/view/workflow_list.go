@@ -767,20 +767,16 @@ func (wl *WorkflowList) updateFilterTitle(filter, hint string) {
 		return
 	}
 
-	title := fmt.Sprintf("%s Workflows [%s](/%s", theme.IconWorkflow, theme.TagFgDim(), filter)
+	// Show only what the user typed in the title (no autocomplete suffix)
+	title := fmt.Sprintf("%s Workflows (/%s)", theme.IconWorkflow, filter)
+	wl.leftPanel.SetTitle(title)
+
+	// Set ghost text suggestion in command bar if we have a matching hint
 	if hint != "" && strings.HasPrefix(strings.ToLower(hint), strings.ToLower(filter)) {
-		// Show autocomplete hint: the part after what user typed
-		suffix := hint[len(filter):]
-		if suffix != "" {
-			title += fmt.Sprintf("[%s]%s[-]", theme.TagFgMuted(), suffix)
-		}
-		// Set inline ghost text suggestion in command bar
 		wl.app.SetFilterSuggestion(hint)
 	} else {
 		wl.app.SetFilterSuggestion("")
 	}
-	title += ")[-]"
-	wl.leftPanel.SetTitle(title)
 }
 
 func (wl *WorkflowList) closeFilter() {
@@ -1061,14 +1057,14 @@ func (wl *WorkflowList) showBatchCancelConfirm() {
 	modal.SetOnSubmit(func() {
 		values := form.GetValues()
 		reason := values["reason"].(string)
-		wl.closeModal("batch-cancel")
+		wl.closeModal()
 		wl.executeBatchCancel(selected, reason)
 	})
 	modal.SetOnCancel(func() {
-		wl.closeModal("batch-cancel")
+		wl.closeModal()
 	})
 
-	wl.app.JigApp().Pages().AddPage("batch-cancel", modal, true, true)
+	wl.app.JigApp().Pages().Push(modal)
 	wl.app.JigApp().SetFocus(form)
 }
 
@@ -1166,14 +1162,14 @@ func (wl *WorkflowList) showBatchTerminateConfirm() {
 		if reason == "" {
 			return // Require reason for terminate
 		}
-		wl.closeModal("batch-terminate")
+		wl.closeModal()
 		wl.executeBatchTerminate(selected, reason)
 	})
 	modal.SetOnCancel(func() {
-		wl.closeModal("batch-terminate")
+		wl.closeModal()
 	})
 
-	wl.app.JigApp().Pages().AddPage("batch-terminate", modal, true, true)
+	wl.app.JigApp().Pages().Push(modal)
 	wl.app.JigApp().SetFocus(form)
 }
 
@@ -1219,9 +1215,8 @@ func (wl *WorkflowList) executeBatchTerminate(indices []int, reason string) {
 	}()
 }
 
-func (wl *WorkflowList) closeModal(name string) {
-	wl.app.JigApp().Pages().RemovePage(name)
-	wl.app.JigApp().SetFocus(wl.table)
+func (wl *WorkflowList) closeModal() {
+	wl.app.JigApp().Pages().DismissModal()
 }
 
 // Visibility query methods
@@ -1253,11 +1248,11 @@ func (wl *WorkflowList) showVisibilityQuery() {
 
 	form.SetOnSubmit(func(values map[string]any) {
 		query := values["query"].(string)
-		wl.closeModal("visibility-query")
+		wl.closeModal()
 		wl.applyVisibilityQuery(query)
 	})
 	form.SetOnCancel(func() {
-		wl.closeModal("visibility-query")
+		wl.closeModal()
 	})
 
 	modal.SetContent(content)
@@ -1268,14 +1263,14 @@ func (wl *WorkflowList) showVisibilityQuery() {
 	modal.SetOnSubmit(func() {
 		values := form.GetValues()
 		query := values["query"].(string)
-		wl.closeModal("visibility-query")
+		wl.closeModal()
 		wl.applyVisibilityQuery(query)
 	})
 	modal.SetOnCancel(func() {
-		wl.closeModal("visibility-query")
+		wl.closeModal()
 	})
 
-	wl.app.JigApp().Pages().AddPage("visibility-query", modal, true, true)
+	wl.app.JigApp().Pages().Push(modal)
 	wl.app.JigApp().SetFocus(form)
 }
 
@@ -1343,7 +1338,7 @@ func (wl *WorkflowList) showQueryTemplates() {
 
 	table.SetOnSelect(func(row int) {
 		if row >= 0 && row < len(templates) {
-			wl.closeModal("query-templates")
+			wl.closeModal()
 			wl.applyVisibilityQuery(templates[row].query)
 		}
 	})
@@ -1354,10 +1349,10 @@ func (wl *WorkflowList) showQueryTemplates() {
 		{Key: "Esc", Description: "Cancel"},
 	})
 	modal.SetOnCancel(func() {
-		wl.closeModal("query-templates")
+		wl.closeModal()
 	})
 
-	wl.app.JigApp().Pages().AddPage("query-templates", modal, true, true)
+	wl.app.JigApp().Pages().Push(modal)
 	wl.app.JigApp().SetFocus(table)
 }
 
@@ -1383,11 +1378,11 @@ func (wl *WorkflowList) showDateRangePicker() {
 
 	form.SetOnSubmit(func(values map[string]any) {
 		preset := values["preset"].(string)
-		wl.closeModal("date-range")
+		wl.closeModal()
 		wl.applyDatePreset(preset)
 	})
 	form.SetOnCancel(func() {
-		wl.closeModal("date-range")
+		wl.closeModal()
 	})
 
 	modal.SetContent(form)
@@ -1398,14 +1393,14 @@ func (wl *WorkflowList) showDateRangePicker() {
 	modal.SetOnSubmit(func() {
 		values := form.GetValues()
 		preset := values["preset"].(string)
-		wl.closeModal("date-range")
+		wl.closeModal()
 		wl.applyDatePreset(preset)
 	})
 	modal.SetOnCancel(func() {
-		wl.closeModal("date-range")
+		wl.closeModal()
 	})
 
-	wl.app.JigApp().Pages().AddPage("date-range", modal, true, true)
+	wl.app.JigApp().Pages().Push(modal)
 	wl.app.JigApp().SetFocus(form)
 }
 
@@ -1466,7 +1461,7 @@ func (wl *WorkflowList) showSavedFilters() {
 		// Convert display row to history index (most recent first)
 		historyIdx := len(wl.searchHistory) - 1 - row
 		if historyIdx >= 0 && historyIdx < len(wl.searchHistory) {
-			wl.closeModal("saved-filters")
+			wl.closeModal()
 			wl.applyVisibilityQuery(wl.searchHistory[historyIdx])
 		}
 	})
@@ -1477,10 +1472,10 @@ func (wl *WorkflowList) showSavedFilters() {
 		{Key: "Esc", Description: "Cancel"},
 	})
 	modal.SetOnCancel(func() {
-		wl.closeModal("saved-filters")
+		wl.closeModal()
 	})
 
-	wl.app.JigApp().Pages().AddPage("saved-filters", modal, true, true)
+	wl.app.JigApp().Pages().Push(modal)
 	wl.app.JigApp().SetFocus(table)
 }
 
@@ -1507,10 +1502,10 @@ Your queries will be saved here.[-]`,
 		{Key: "Esc", Description: "Close"},
 	})
 	modal.SetOnCancel(func() {
-		wl.closeModal("saved-filters")
+		wl.closeModal()
 	})
 
-	wl.app.JigApp().Pages().AddPage("saved-filters", modal, true, true)
+	wl.app.JigApp().Pages().Push(modal)
 	wl.app.JigApp().SetFocus(modal)
 }
 
@@ -1541,10 +1536,10 @@ func (wl *WorkflowList) showSaveFilter() {
 	form.SetOnSubmit(func(values map[string]any) {
 		// For now, just add to history (persistent save would require config storage)
 		wl.addToHistory(wl.visibilityQuery)
-		wl.closeModal("save-filter")
+		wl.closeModal()
 	})
 	form.SetOnCancel(func() {
-		wl.closeModal("save-filter")
+		wl.closeModal()
 	})
 
 	modal.SetContent(content)
@@ -1554,13 +1549,13 @@ func (wl *WorkflowList) showSaveFilter() {
 	})
 	modal.SetOnSubmit(func() {
 		wl.addToHistory(wl.visibilityQuery)
-		wl.closeModal("save-filter")
+		wl.closeModal()
 	})
 	modal.SetOnCancel(func() {
-		wl.closeModal("save-filter")
+		wl.closeModal()
 	})
 
-	wl.app.JigApp().Pages().AddPage("save-filter", modal, true, true)
+	wl.app.JigApp().Pages().Push(modal)
 	wl.app.JigApp().SetFocus(form)
 }
 
@@ -1578,9 +1573,10 @@ func (wl *WorkflowList) updatePanelTitle() {
 		if len(q) > 40 {
 			q = q[:37] + "..."
 		}
-		title = fmt.Sprintf("%s Workflows [%s](%s)[-]", theme.IconWorkflow, theme.TagAccent(), q)
+		// Panel doesn't parse tview color codes, use plain text
+		title = fmt.Sprintf("%s Workflows (%s)", theme.IconWorkflow, q)
 	} else if wl.filterText != "" {
-		title = fmt.Sprintf("%s Workflows [%s](/%s)[-]", theme.IconWorkflow, theme.TagFgDim(), wl.filterText)
+		title = fmt.Sprintf("%s Workflows (/%s)", theme.IconWorkflow, wl.filterText)
 	}
 	wl.leftPanel.SetTitle(title)
 }
@@ -1760,11 +1756,11 @@ func (wl *WorkflowList) showSignalWithStart() {
 			return
 		}
 
-		wl.closeModal("signal-with-start")
+		wl.closeModal()
 		wl.executeSignalWithStart(workflowID, workflowType, taskQueue, signalName, signalInput, workflowInput)
 	})
 	form.SetOnCancel(func() {
-		wl.closeModal("signal-with-start")
+		wl.closeModal()
 	})
 
 	modal.SetContent(form)
@@ -1786,14 +1782,14 @@ func (wl *WorkflowList) showSignalWithStart() {
 			return
 		}
 
-		wl.closeModal("signal-with-start")
+		wl.closeModal()
 		wl.executeSignalWithStart(workflowID, workflowType, taskQueue, signalName, signalInput, workflowInput)
 	})
 	modal.SetOnCancel(func() {
-		wl.closeModal("signal-with-start")
+		wl.closeModal()
 	})
 
-	wl.app.JigApp().Pages().AddPage("signal-with-start", modal, true, true)
+	wl.app.JigApp().Pages().Push(modal)
 	wl.app.JigApp().SetFocus(form)
 }
 

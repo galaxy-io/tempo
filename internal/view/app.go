@@ -148,27 +148,14 @@ func (a *App) setup() {
 			return event
 		}
 
-		frontPage, _ := a.app.Pages().GetFrontPage()
-
 		// Check if we're on a modal page that should handle its own escape
-		isModalPage := strings.HasSuffix(frontPage, "-confirm") || // cancel-confirm, terminate-confirm, delete-confirm, etc.
-			strings.HasSuffix(frontPage, "-modal") || // help-modal, event-detail-modal, io-modal, etc.
-			strings.HasSuffix(frontPage, "-form") || // profile-form, edit-form
-			strings.HasSuffix(frontPage, "-input") || // signal-input, query-input, template-input, diff-input, workflow-input
-			strings.HasSuffix(frontPage, "-error") || // query-error, reset-error
-			strings.HasSuffix(frontPage, "-result") || // query-result
-			strings.HasSuffix(frontPage, "-loading") || // reset-loading
-			strings.HasSuffix(frontPage, "-picker") || // reset-picker
-			strings.HasSuffix(frontPage, "-selector") || // theme-selector, profile-selector
-			strings.HasSuffix(frontPage, "-query") || // visibility-query
-			strings.HasPrefix(frontPage, "batch-") || // batch-cancel, batch-terminate
-			strings.HasPrefix(frontPage, "quick-") || // quick-reset
-			frontPage == "splash-test" ||
-			frontPage == "query-templates" ||
-			frontPage == "date-range" ||
-			frontPage == "saved-filters" ||
-			frontPage == "save-filter" ||
-			frontPage == "event-detail"
+		isModalPage := a.app.Pages().CurrentIsModal()
+		// Fallback for views using AddPage that don't implement nav.Component
+		if !isModalPage {
+			if frontPage, _ := a.app.Pages().GetFrontPage(); frontPage == "splash-test" {
+				isModalPage = true
+			}
+		}
 
 		// Global quit (only on root view, not in modals)
 		if event.Rune() == 'q' && !isModalPage {
@@ -638,22 +625,16 @@ func (a *App) showHelp() {
 		a.closeHelp()
 	})
 
-	a.app.Pages().AddPage("help-modal", helpModal, true, true)
+	a.app.Pages().Push(helpModal)
 	a.app.SetFocus(helpModal)
 }
 
 func (a *App) closeHelp() {
-	a.app.Pages().RemovePage("help-modal")
-	if current := a.app.Pages().Current(); current != nil {
-		a.app.SetFocus(current)
-	}
+	a.app.Pages().DismissModal()
 }
 
 func (a *App) closeThemeSelector() {
-	a.app.Pages().RemovePage("theme-selector")
-	if current := a.app.Pages().Current(); current != nil {
-		a.app.SetFocus(current)
-	}
+	a.app.Pages().DismissModal()
 }
 
 func (a *App) showDebugScreen() {
@@ -920,7 +901,7 @@ func (a *App) showThemeSelector() {
 	})
 
 	// Use AddPage with explicit name so global InputCapture knows to skip Escape handling
-	a.app.Pages().AddPage("theme-selector", modal, true, true)
+	a.app.Pages().Push(modal)
 	a.app.SetFocus(list)
 }
 
@@ -964,15 +945,12 @@ func (a *App) ShowProfileSelector() {
 		a.closeProfileSelector()
 	})
 
-	a.app.Pages().AddPage("profile-selector", modal, true, true)
+	a.app.Pages().Push(modal)
 	a.app.SetFocus(modal)
 }
 
 func (a *App) closeProfileSelector() {
-	a.app.Pages().RemovePage("profile-selector")
-	if current := a.app.Pages().Current(); current != nil {
-		a.app.SetFocus(current)
-	}
+	a.app.Pages().DismissModal()
 }
 
 func (a *App) showProfileForm(editName string) {
@@ -996,15 +974,12 @@ func (a *App) showProfileForm(editName string) {
 		a.closeProfileForm()
 	})
 
-	a.app.Pages().AddPage("profile-form", form, true, true)
+	a.app.Pages().Push(form)
 	a.app.SetFocus(form)
 }
 
 func (a *App) closeProfileForm() {
-	a.app.Pages().RemovePage("profile-form")
-	if current := a.app.Pages().Current(); current != nil {
-		a.app.SetFocus(current)
-	}
+	a.app.Pages().DismissModal()
 }
 
 func (a *App) deleteProfile(name string) {

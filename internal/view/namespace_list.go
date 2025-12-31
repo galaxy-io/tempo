@@ -262,11 +262,12 @@ func (nl *NamespaceList) toggleAutoRefresh() {
 }
 
 func (nl *NamespaceList) startAutoRefresh() {
-	nl.refreshTicker = time.NewTicker(5 * time.Second)
+	ticker := time.NewTicker(5 * time.Second)
+	nl.refreshTicker = ticker
 	go func() {
 		for {
 			select {
-			case <-nl.refreshTicker.C:
+			case <-ticker.C:
 				nl.app.JigApp().QueueUpdateDraw(func() {
 					nl.loadData()
 				})
@@ -443,11 +444,11 @@ func (nl *NamespaceList) showSignalWithStart(namespace string) {
 			return
 		}
 
-		nl.closeModal("signal-with-start")
+		nl.closeModal()
 		nl.executeSignalWithStart(namespace, workflowID, workflowType, taskQueue, signalName, signalInput, workflowInput)
 	})
 	form.SetOnCancel(func() {
-		nl.closeModal("signal-with-start")
+		nl.closeModal()
 	})
 
 	modal.SetContent(form)
@@ -469,14 +470,14 @@ func (nl *NamespaceList) showSignalWithStart(namespace string) {
 			return
 		}
 
-		nl.closeModal("signal-with-start")
+		nl.closeModal()
 		nl.executeSignalWithStart(namespace, workflowID, workflowType, taskQueue, signalName, signalInput, workflowInput)
 	})
 	modal.SetOnCancel(func() {
-		nl.closeModal("signal-with-start")
+		nl.closeModal()
 	})
 
-	nl.app.JigApp().Pages().AddPage("signal-with-start", modal, true, true)
+	nl.app.JigApp().Pages().Push(modal)
 	nl.app.JigApp().SetFocus(form)
 }
 
@@ -518,12 +519,9 @@ func (nl *NamespaceList) executeSignalWithStart(namespace, workflowID, workflowT
 	}()
 }
 
-// closeModal removes a modal page and restores focus to the current view.
-func (nl *NamespaceList) closeModal(name string) {
-	nl.app.JigApp().Pages().RemovePage(name)
-	if current := nl.app.JigApp().Pages().Current(); current != nil {
-		nl.app.JigApp().SetFocus(current)
-	}
+// closeModal dismisses the current modal and restores focus.
+func (nl *NamespaceList) closeModal() {
+	nl.app.JigApp().Pages().DismissModal()
 }
 
 // showCreateNamespaceForm displays a modal for creating a new namespace.
@@ -559,11 +557,11 @@ func (nl *NamespaceList) showCreateNamespaceForm() {
 			OwnerEmail:    values["ownerEmail"].(string),
 			RetentionDays: retentionDays,
 		}
-		nl.closeModal("create-namespace")
+		nl.closeModal()
 		nl.executeCreateNamespace(createReq)
 	})
 	form.SetOnCancel(func() {
-		nl.closeModal("create-namespace")
+		nl.closeModal()
 	})
 
 	modal.SetContent(form)
@@ -591,14 +589,14 @@ func (nl *NamespaceList) showCreateNamespaceForm() {
 			OwnerEmail:    values["ownerEmail"].(string),
 			RetentionDays: retentionDays,
 		}
-		nl.closeModal("create-namespace")
+		nl.closeModal()
 		nl.executeCreateNamespace(createReq)
 	})
 	modal.SetOnCancel(func() {
-		nl.closeModal("create-namespace")
+		nl.closeModal()
 	})
 
-	nl.app.JigApp().Pages().AddPage("create-namespace", modal, true, true)
+	nl.app.JigApp().Pages().Push(modal)
 	nl.app.JigApp().SetFocus(form)
 }
 
@@ -695,11 +693,11 @@ func (nl *NamespaceList) showEditFormWithData(name, description, ownerEmail, ret
 			OwnerEmail:    values["ownerEmail"].(string),
 			RetentionDays: retentionDays,
 		}
-		nl.closeModal("edit-namespace")
+		nl.closeModal()
 		nl.executeUpdateNamespace(updateReq)
 	})
 	form.SetOnCancel(func() {
-		nl.closeModal("edit-namespace")
+		nl.closeModal()
 	})
 
 	modal.SetContent(form)
@@ -722,14 +720,14 @@ func (nl *NamespaceList) showEditFormWithData(name, description, ownerEmail, ret
 			OwnerEmail:    values["ownerEmail"].(string),
 			RetentionDays: retentionDays,
 		}
-		nl.closeModal("edit-namespace")
+		nl.closeModal()
 		nl.executeUpdateNamespace(updateReq)
 	})
 	modal.SetOnCancel(func() {
-		nl.closeModal("edit-namespace")
+		nl.closeModal()
 	})
 
-	nl.app.JigApp().Pages().AddPage("edit-namespace", modal, true, true)
+	nl.app.JigApp().Pages().Push(modal)
 	nl.app.JigApp().SetFocus(form)
 }
 
@@ -806,7 +804,7 @@ func (nl *NamespaceList) showDeprecateConfirm() {
 		if confirm != name {
 			return // Must match namespace name
 		}
-		nl.closeModal("deprecate-confirm")
+		nl.closeModal()
 		if wasAutoRefresh {
 			nl.autoRefresh = true
 			nl.startAutoRefresh()
@@ -814,7 +812,7 @@ func (nl *NamespaceList) showDeprecateConfirm() {
 		nl.executeDeprecateNamespace(name)
 	})
 	form.SetOnCancel(func() {
-		nl.closeModal("deprecate-confirm")
+		nl.closeModal()
 		if wasAutoRefresh {
 			nl.autoRefresh = true
 			nl.startAutoRefresh()
@@ -835,7 +833,7 @@ func (nl *NamespaceList) showDeprecateConfirm() {
 		if confirm != name {
 			return
 		}
-		nl.closeModal("deprecate-confirm")
+		nl.closeModal()
 		if wasAutoRefresh {
 			nl.autoRefresh = true
 			nl.startAutoRefresh()
@@ -843,14 +841,14 @@ func (nl *NamespaceList) showDeprecateConfirm() {
 		nl.executeDeprecateNamespace(name)
 	})
 	modal.SetOnCancel(func() {
-		nl.closeModal("deprecate-confirm")
+		nl.closeModal()
 		if wasAutoRefresh {
 			nl.autoRefresh = true
 			nl.startAutoRefresh()
 		}
 	})
 
-	nl.app.JigApp().Pages().AddPage("deprecate-confirm", modal, true, true)
+	nl.app.JigApp().Pages().Push(modal)
 	nl.app.JigApp().SetFocus(form)
 }
 
@@ -931,7 +929,7 @@ Deleting a namespace will permanently remove:
 		if confirm != name {
 			return // Must match namespace name
 		}
-		nl.closeModal("delete-confirm")
+		nl.closeModal()
 		if wasAutoRefresh {
 			nl.autoRefresh = true
 			nl.startAutoRefresh()
@@ -939,7 +937,7 @@ Deleting a namespace will permanently remove:
 		nl.executeDeleteNamespace(name)
 	})
 	form.SetOnCancel(func() {
-		nl.closeModal("delete-confirm")
+		nl.closeModal()
 		if wasAutoRefresh {
 			nl.autoRefresh = true
 			nl.startAutoRefresh()
@@ -960,7 +958,7 @@ Deleting a namespace will permanently remove:
 		if confirm != name {
 			return
 		}
-		nl.closeModal("delete-confirm")
+		nl.closeModal()
 		if wasAutoRefresh {
 			nl.autoRefresh = true
 			nl.startAutoRefresh()
@@ -968,14 +966,14 @@ Deleting a namespace will permanently remove:
 		nl.executeDeleteNamespace(name)
 	})
 	modal.SetOnCancel(func() {
-		nl.closeModal("delete-confirm")
+		nl.closeModal()
 		if wasAutoRefresh {
 			nl.autoRefresh = true
 			nl.startAutoRefresh()
 		}
 	})
 
-	nl.app.JigApp().Pages().AddPage("delete-confirm", modal, true, true)
+	nl.app.JigApp().Pages().Push(modal)
 	nl.app.JigApp().SetFocus(form)
 }
 

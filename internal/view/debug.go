@@ -476,8 +476,7 @@ func (da *DebugApp) showThemeSelector() {
 			// Save theme to config
 			da.config.Theme = name
 			da.config.Save()
-			da.app.Pages().RemovePage("theme-selector")
-			da.app.SetFocus(da.screen)
+			da.app.Pages().DismissModal()
 		})
 		listIdx++
 	}
@@ -505,8 +504,7 @@ func (da *DebugApp) showThemeSelector() {
 			// Save theme to config
 			da.config.Theme = name
 			da.config.Save()
-			da.app.Pages().RemovePage("theme-selector")
-			da.app.SetFocus(da.screen)
+			da.app.Pages().DismissModal()
 		})
 		listIdx++
 	}
@@ -548,8 +546,7 @@ func (da *DebugApp) showThemeSelector() {
 				da.screen.data.ThemeName = currentTheme
 				da.screen.RefreshTheme()
 			}
-			da.app.Pages().RemovePage("theme-selector")
-			da.app.SetFocus(da.screen)
+			da.app.Pages().DismissModal()
 			return nil
 		}
 
@@ -594,11 +591,10 @@ func (da *DebugApp) showThemeSelector() {
 			da.screen.data.ThemeName = currentTheme
 			da.screen.RefreshTheme()
 		}
-		da.app.Pages().RemovePage("theme-selector")
-		da.app.SetFocus(da.screen)
+		da.app.Pages().DismissModal()
 	})
 
-	da.app.Pages().AddPage("theme-selector", modal, true, true)
+	da.app.Pages().Push(modal)
 	da.app.SetFocus(list)
 
 	// Suppress unused variable warning
