@@ -170,6 +170,17 @@ Press `T` to open the theme selector with live preview.
 
 MIT License - see [LICENSE](LICENSE) for details.
 
+
+## Ways to Contribute
+
+You can contribute by:
+- reporting bugs
+- Proposing features or design improvements
+- Improving documentation
+- Fixing issues labeled good first issue
+
+To report a bug, make a feature request, and more, visit our issues page
+
 ## Acknowledgments
 
 - [Temporal](https://temporal.io) - The workflow engine this client connects to
