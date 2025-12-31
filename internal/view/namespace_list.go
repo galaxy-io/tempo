@@ -3,6 +3,7 @@ package view
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/atterpac/jig/components"
@@ -38,6 +39,7 @@ func NewNamespaceList(app *App) *NamespaceList {
 		app:         app,
 		namespaces:  []temporal.Namespace{},
 		showPreview: true,
+		autoRefresh: true,
 		stopRefresh: make(chan struct{}),
 	}
 	nl.setup()
@@ -314,10 +316,10 @@ func (nl *NamespaceList) Start() {
 			}
 			return nil
 		case 'n':
-			// TODO: Create namespace form
+			nl.showCreateNamespaceForm()
 			return nil
 		case 'e':
-			// TODO: Edit namespace form
+			nl.showEditNamespaceForm()
 			return nil
 		case 'D':
 			// TODO: Deprecate confirm
@@ -335,6 +337,9 @@ func (nl *NamespaceList) Start() {
 		return event
 	})
 	nl.loadData()
+	if nl.autoRefresh {
+		nl.startAutoRefresh()
+	}
 }
 
 // Stop is called when the view is deactivated.
@@ -509,4 +514,239 @@ func (nl *NamespaceList) closeModal(name string) {
 	if current := nl.app.JigApp().Pages().Current(); current != nil {
 		nl.app.JigApp().SetFocus(current)
 	}
+}
+
+// showCreateNamespaceForm displays a modal for creating a new namespace.
+func (nl *NamespaceList) showCreateNamespaceForm() {
+	modal := components.NewModal(components.ModalConfig{
+		Title:    fmt.Sprintf("%s Create Namespace", theme.IconNamespace),
+		Width:    70,
+		Height:   18,
+		Backdrop: true,
+	})
+
+	form := components.NewForm()
+	form.AddTextField("name", "Namespace Name", "")
+	form.AddTextField("description", "Description", "")
+	form.AddTextField("ownerEmail", "Owner Email", "")
+	form.AddTextField("retention", "Retention (days)", "3")
+
+	form.SetOnSubmit(func(values map[string]any) {
+		name := values["name"].(string)
+		if name == "" {
+			return // Name is required
+		}
+
+		retentionStr := values["retention"].(string)
+		retentionDays, err := strconv.Atoi(retentionStr)
+		if err != nil || retentionDays < 1 {
+			retentionDays = 3 // Default to 3 days
+		}
+
+		createReq := temporal.NamespaceCreateRequest{
+			Name:          name,
+			Description:   values["description"].(string),
+			OwnerEmail:    values["ownerEmail"].(string),
+			RetentionDays: retentionDays,
+		}
+		nl.closeModal("create-namespace")
+		nl.executeCreateNamespace(createReq)
+	})
+	form.SetOnCancel(func() {
+		nl.closeModal("create-namespace")
+	})
+
+	modal.SetContent(form)
+	modal.SetHints([]components.KeyHint{
+		{Key: "Tab", Description: "Next field"},
+		{Key: "Enter", Description: "Create"},
+		{Key: "Esc", Description: "Cancel"},
+	})
+	modal.SetOnSubmit(func() {
+		values := form.GetValues()
+		name := values["name"].(string)
+		if name == "" {
+			return
+		}
+
+		retentionStr := values["retention"].(string)
+		retentionDays, err := strconv.Atoi(retentionStr)
+		if err != nil || retentionDays < 1 {
+			retentionDays = 3
+		}
+
+		createReq := temporal.NamespaceCreateRequest{
+			Name:          name,
+			Description:   values["description"].(string),
+			OwnerEmail:    values["ownerEmail"].(string),
+			RetentionDays: retentionDays,
+		}
+		nl.closeModal("create-namespace")
+		nl.executeCreateNamespace(createReq)
+	})
+	modal.SetOnCancel(func() {
+		nl.closeModal("create-namespace")
+	})
+
+	nl.app.JigApp().Pages().AddPage("create-namespace", modal, true, true)
+	nl.app.JigApp().SetFocus(form)
+}
+
+// executeCreateNamespace performs the namespace creation asynchronously.
+func (nl *NamespaceList) executeCreateNamespace(req temporal.NamespaceCreateRequest) {
+	provider := nl.app.Provider()
+	if provider == nil {
+		ShowErrorModal(nl.app.JigApp(), "Create Failed", "No provider connected")
+		return
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		err := provider.CreateNamespace(ctx, req)
+
+		nl.app.JigApp().QueueUpdateDraw(func() {
+			if err != nil {
+				ShowErrorModal(nl.app.JigApp(), "Create Namespace Failed", err.Error())
+				return
+			}
+
+			ShowInfoModal(nl.app.JigApp(), "Namespace Created",
+				fmt.Sprintf("Namespace '%s' created successfully", req.Name))
+			nl.loadData() // Refresh the list
+		})
+	}()
+}
+
+// showEditNamespaceForm displays a modal for editing the selected namespace.
+func (nl *NamespaceList) showEditNamespaceForm() {
+	ns := nl.getSelectedNamespace()
+	if ns == nil {
+		return
+	}
+
+	// First, fetch the full details to get current values
+	provider := nl.app.Provider()
+	if provider == nil {
+		// Use available data from list
+		nl.showEditFormWithData(ns.Name, ns.Description, ns.OwnerEmail, ns.RetentionPeriod)
+		return
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		detail, err := provider.DescribeNamespace(ctx, ns.Name)
+
+		nl.app.JigApp().QueueUpdateDraw(func() {
+			if err != nil {
+				// Fall back to list data
+				nl.showEditFormWithData(ns.Name, ns.Description, ns.OwnerEmail, ns.RetentionPeriod)
+				return
+			}
+			nl.showEditFormWithData(detail.Name, detail.Description, detail.OwnerEmail, detail.RetentionPeriod)
+		})
+	}()
+}
+
+// showEditFormWithData displays the edit form with pre-populated values.
+func (nl *NamespaceList) showEditFormWithData(name, description, ownerEmail, retentionPeriod string) {
+	modal := components.NewModal(components.ModalConfig{
+		Title:    fmt.Sprintf("%s Edit Namespace: %s", theme.IconNamespace, name),
+		Width:    70,
+		Height:   16,
+		Backdrop: true,
+	})
+
+	// Parse retention period (e.g., "72h0m0s" or "3 days" -> 3)
+	currentRetention := 3
+	if retentionPeriod != "" {
+		if dur, err := time.ParseDuration(retentionPeriod); err == nil {
+			currentRetention = int(dur.Hours() / 24)
+		}
+	}
+
+	form := components.NewForm()
+	form.AddTextField("description", "Description", description)
+	form.AddTextField("ownerEmail", "Owner Email", ownerEmail)
+	form.AddTextField("retention", "Retention (days)", strconv.Itoa(currentRetention))
+
+	form.SetOnSubmit(func(values map[string]any) {
+		retentionStr := values["retention"].(string)
+		retentionDays, err := strconv.Atoi(retentionStr)
+		if err != nil || retentionDays < 1 {
+			return // Invalid retention
+		}
+
+		updateReq := temporal.NamespaceUpdateRequest{
+			Name:          name,
+			Description:   values["description"].(string),
+			OwnerEmail:    values["ownerEmail"].(string),
+			RetentionDays: retentionDays,
+		}
+		nl.closeModal("edit-namespace")
+		nl.executeUpdateNamespace(updateReq)
+	})
+	form.SetOnCancel(func() {
+		nl.closeModal("edit-namespace")
+	})
+
+	modal.SetContent(form)
+	modal.SetHints([]components.KeyHint{
+		{Key: "Tab", Description: "Next field"},
+		{Key: "Enter", Description: "Save"},
+		{Key: "Esc", Description: "Cancel"},
+	})
+	modal.SetOnSubmit(func() {
+		values := form.GetValues()
+		retentionStr := values["retention"].(string)
+		retentionDays, err := strconv.Atoi(retentionStr)
+		if err != nil || retentionDays < 1 {
+			return
+		}
+
+		updateReq := temporal.NamespaceUpdateRequest{
+			Name:          name,
+			Description:   values["description"].(string),
+			OwnerEmail:    values["ownerEmail"].(string),
+			RetentionDays: retentionDays,
+		}
+		nl.closeModal("edit-namespace")
+		nl.executeUpdateNamespace(updateReq)
+	})
+	modal.SetOnCancel(func() {
+		nl.closeModal("edit-namespace")
+	})
+
+	nl.app.JigApp().Pages().AddPage("edit-namespace", modal, true, true)
+	nl.app.JigApp().SetFocus(form)
+}
+
+// executeUpdateNamespace performs the namespace update asynchronously.
+func (nl *NamespaceList) executeUpdateNamespace(req temporal.NamespaceUpdateRequest) {
+	provider := nl.app.Provider()
+	if provider == nil {
+		ShowErrorModal(nl.app.JigApp(), "Update Failed", "No provider connected")
+		return
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		err := provider.UpdateNamespace(ctx, req)
+
+		nl.app.JigApp().QueueUpdateDraw(func() {
+			if err != nil {
+				ShowErrorModal(nl.app.JigApp(), "Update Namespace Failed", err.Error())
+				return
+			}
+
+			ShowInfoModal(nl.app.JigApp(), "Namespace Updated",
+				fmt.Sprintf("Namespace '%s' updated successfully", req.Name))
+			nl.loadData() // Refresh the list
+		})
+	}()
 }
