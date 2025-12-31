@@ -479,6 +479,24 @@ func (a *App) ShowToastWarning(message string) {
 	})
 }
 
+// ShowToastSuccess displays a success toast notification.
+// Use ToastSuccess instead if already inside QueueUpdateDraw.
+func (a *App) ShowToastSuccess(message string) {
+	a.app.QueueUpdateDraw(func() {
+		a.toasts.Success(message)
+	})
+}
+
+// ToastSuccess displays a success toast (call from within QueueUpdateDraw).
+func (a *App) ToastSuccess(message string) {
+	a.toasts.Success(message)
+}
+
+// ToastError displays an error toast (call from within QueueUpdateDraw).
+func (a *App) ToastError(message string) {
+	a.toasts.Error(message)
+}
+
 // connectionMonitor periodically checks the connection and attempts reconnection if needed.
 func (a *App) connectionMonitor() {
 	ticker := time.NewTicker(connectionCheckInterval)

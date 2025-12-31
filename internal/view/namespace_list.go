@@ -322,10 +322,16 @@ func (nl *NamespaceList) Start() {
 			nl.showEditNamespaceForm()
 			return nil
 		case 'D':
-			// TODO: Deprecate confirm
+			ns := nl.getSelectedNamespace()
+			if ns != nil && ns.State != "Deprecated" {
+				nl.showDeprecateConfirm()
+			}
 			return nil
 		case 'X':
-			// TODO: Delete confirm
+			ns := nl.getSelectedNamespace()
+			if ns != nil && ns.State == "Deprecated" {
+				nl.showDeleteConfirm()
+			}
 			return nil
 		case 'S':
 			ns := nl.getSelectedNamespace()
@@ -364,11 +370,16 @@ func (nl *NamespaceList) Hints() []KeyHint {
 		hints = append(hints, KeyHint{Key: "D", Description: "Deprecate"})
 	}
 
+	autoHint := "Auto: Off"
+	if nl.autoRefresh {
+		autoHint = "Auto: On"
+	}
+
 	hints = append(hints,
 		KeyHint{Key: "S", Description: "Signal+Start"},
 		KeyHint{Key: "p", Description: "Preview"},
 		KeyHint{Key: "r", Description: "Refresh"},
-		KeyHint{Key: "a", Description: "Auto-refresh"},
+		KeyHint{Key: "a", Description: autoHint},
 		KeyHint{Key: "T", Description: "Theme"},
 		KeyHint{Key: "?", Description: "Help"},
 		KeyHint{Key: "q", Description: "Quit"},
@@ -494,7 +505,7 @@ func (nl *NamespaceList) executeSignalWithStart(namespace, workflowID, workflowT
 			req.WorkflowInput = []byte(workflowInput)
 		}
 
-		runID, err := provider.SignalWithStartWorkflow(ctx, namespace, req)
+		_, err := provider.SignalWithStartWorkflow(ctx, namespace, req)
 
 		nl.app.JigApp().QueueUpdateDraw(func() {
 			if err != nil {
@@ -502,8 +513,7 @@ func (nl *NamespaceList) executeSignalWithStart(namespace, workflowID, workflowT
 				return
 			}
 
-			ShowInfoModal(nl.app.JigApp(), "SignalWithStart Successful",
-				fmt.Sprintf("Workflow: %s\nRun ID: %s", workflowID, runID))
+			nl.app.ToastSuccess(fmt.Sprintf("SignalWithStart: %s", workflowID))
 		})
 	}()
 }
@@ -612,8 +622,7 @@ func (nl *NamespaceList) executeCreateNamespace(req temporal.NamespaceCreateRequ
 				return
 			}
 
-			ShowInfoModal(nl.app.JigApp(), "Namespace Created",
-				fmt.Sprintf("Namespace '%s' created successfully", req.Name))
+			nl.app.ToastSuccess(fmt.Sprintf("Namespace '%s' created", req.Name))
 			nl.loadData() // Refresh the list
 		})
 	}()
@@ -744,8 +753,253 @@ func (nl *NamespaceList) executeUpdateNamespace(req temporal.NamespaceUpdateRequ
 				return
 			}
 
-			ShowInfoModal(nl.app.JigApp(), "Namespace Updated",
-				fmt.Sprintf("Namespace '%s' updated successfully", req.Name))
+			nl.app.ToastSuccess(fmt.Sprintf("Namespace '%s' updated", req.Name))
+			nl.loadData() // Refresh the list
+		})
+	}()
+}
+
+// showDeprecateConfirm displays a confirmation modal for deprecating a namespace.
+func (nl *NamespaceList) showDeprecateConfirm() {
+	ns := nl.getSelectedNamespace()
+	if ns == nil {
+		return
+	}
+
+	// Capture name as value to avoid pointer issues with slice reallocation
+	name := ns.Name
+
+	// Pause auto-refresh while modal is open
+	wasAutoRefresh := nl.autoRefresh
+	if wasAutoRefresh {
+		nl.stopAutoRefresh()
+	}
+
+	modal := components.NewModal(components.ModalConfig{
+		Title:    fmt.Sprintf("%s Deprecate Namespace", theme.IconError),
+		Width:    70,
+		Height:   16,
+		Backdrop: true,
+	})
+
+	contentFlex := tview.NewFlex().SetDirection(tview.FlexRow)
+	contentFlex.SetBackgroundColor(theme.Bg())
+
+	warningText := tview.NewTextView().
+		SetDynamicColors(true).
+		SetTextAlign(tview.AlignLeft)
+	warningText.SetBackgroundColor(theme.Bg())
+	warningText.SetText(fmt.Sprintf(`[%s]Warning: Deprecating a namespace has the following effects:[-]
+
+• New workflows cannot be started in this namespace
+• Existing workflows will continue to run normally
+• This action may be difficult to reverse
+
+[%s]Namespace:[-] [%s]%s[-]`,
+		theme.TagError(),
+		theme.TagFgDim(), theme.TagFg(), name))
+
+	form := components.NewForm()
+	form.AddTextField("confirm", "Type namespace name to confirm", "")
+	form.SetOnSubmit(func(values map[string]any) {
+		confirm := values["confirm"].(string)
+		if confirm != name {
+			return // Must match namespace name
+		}
+		nl.closeModal("deprecate-confirm")
+		if wasAutoRefresh {
+			nl.autoRefresh = true
+			nl.startAutoRefresh()
+		}
+		nl.executeDeprecateNamespace(name)
+	})
+	form.SetOnCancel(func() {
+		nl.closeModal("deprecate-confirm")
+		if wasAutoRefresh {
+			nl.autoRefresh = true
+			nl.startAutoRefresh()
+		}
+	})
+
+	contentFlex.AddItem(warningText, 8, 0, false)
+	contentFlex.AddItem(form, 0, 1, true)
+
+	modal.SetContent(contentFlex)
+	modal.SetHints([]components.KeyHint{
+		{Key: "Enter", Description: "Deprecate"},
+		{Key: "Esc", Description: "Cancel"},
+	})
+	modal.SetOnSubmit(func() {
+		values := form.GetValues()
+		confirm := values["confirm"].(string)
+		if confirm != name {
+			return
+		}
+		nl.closeModal("deprecate-confirm")
+		if wasAutoRefresh {
+			nl.autoRefresh = true
+			nl.startAutoRefresh()
+		}
+		nl.executeDeprecateNamespace(name)
+	})
+	modal.SetOnCancel(func() {
+		nl.closeModal("deprecate-confirm")
+		if wasAutoRefresh {
+			nl.autoRefresh = true
+			nl.startAutoRefresh()
+		}
+	})
+
+	nl.app.JigApp().Pages().AddPage("deprecate-confirm", modal, true, true)
+	nl.app.JigApp().SetFocus(form)
+}
+
+// executeDeprecateNamespace performs the namespace deprecation asynchronously.
+func (nl *NamespaceList) executeDeprecateNamespace(name string) {
+	provider := nl.app.Provider()
+	if provider == nil {
+		ShowErrorModal(nl.app.JigApp(), "Deprecate Failed", "No provider connected")
+		return
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		err := provider.DeprecateNamespace(ctx, name)
+
+		nl.app.JigApp().QueueUpdateDraw(func() {
+			if err != nil {
+				ShowErrorModal(nl.app.JigApp(), "Deprecate Namespace Failed", err.Error())
+				return
+			}
+
+			nl.app.ToastSuccess(fmt.Sprintf("Namespace '%s' deprecated", name))
+			nl.loadData() // Refresh the list
+		})
+	}()
+}
+
+// showDeleteConfirm displays a confirmation modal for deleting a deprecated namespace.
+func (nl *NamespaceList) showDeleteConfirm() {
+	ns := nl.getSelectedNamespace()
+	if ns == nil || ns.State != "Deprecated" {
+		return
+	}
+
+	// Capture values to avoid pointer issues with slice reallocation
+	name := ns.Name
+	state := ns.State
+
+	// Pause auto-refresh while modal is open
+	wasAutoRefresh := nl.autoRefresh
+	if wasAutoRefresh {
+		nl.stopAutoRefresh()
+	}
+
+	modal := components.NewModal(components.ModalConfig{
+		Title:    fmt.Sprintf("%s Delete Namespace", theme.IconError),
+		Width:    70,
+		Height:   18,
+		Backdrop: true,
+	})
+
+	contentFlex := tview.NewFlex().SetDirection(tview.FlexRow)
+	contentFlex.SetBackgroundColor(theme.Bg())
+
+	warningText := tview.NewTextView().
+		SetDynamicColors(true).
+		SetTextAlign(tview.AlignLeft)
+	warningText.SetBackgroundColor(theme.Bg())
+	warningText.SetText(fmt.Sprintf(`[%s]DANGER: This action is irreversible![-]
+
+Deleting a namespace will permanently remove:
+• All workflow history
+• All schedules
+• All configuration
+
+[%s]Namespace:[-] [%s]%s[-]
+[%s]State:[-] [%s]%s[-]`,
+		theme.TagError(),
+		theme.TagFgDim(), theme.TagFg(), name,
+		theme.TagFgDim(), theme.TagError(), state))
+
+	form := components.NewForm()
+	form.AddTextField("confirm", "Type namespace name to confirm", "")
+	form.SetOnSubmit(func(values map[string]any) {
+		confirm := values["confirm"].(string)
+		if confirm != name {
+			return // Must match namespace name
+		}
+		nl.closeModal("delete-confirm")
+		if wasAutoRefresh {
+			nl.autoRefresh = true
+			nl.startAutoRefresh()
+		}
+		nl.executeDeleteNamespace(name)
+	})
+	form.SetOnCancel(func() {
+		nl.closeModal("delete-confirm")
+		if wasAutoRefresh {
+			nl.autoRefresh = true
+			nl.startAutoRefresh()
+		}
+	})
+
+	contentFlex.AddItem(warningText, 10, 0, false)
+	contentFlex.AddItem(form, 0, 1, true)
+
+	modal.SetContent(contentFlex)
+	modal.SetHints([]components.KeyHint{
+		{Key: "Enter", Description: "Delete"},
+		{Key: "Esc", Description: "Cancel"},
+	})
+	modal.SetOnSubmit(func() {
+		values := form.GetValues()
+		confirm := values["confirm"].(string)
+		if confirm != name {
+			return
+		}
+		nl.closeModal("delete-confirm")
+		if wasAutoRefresh {
+			nl.autoRefresh = true
+			nl.startAutoRefresh()
+		}
+		nl.executeDeleteNamespace(name)
+	})
+	modal.SetOnCancel(func() {
+		nl.closeModal("delete-confirm")
+		if wasAutoRefresh {
+			nl.autoRefresh = true
+			nl.startAutoRefresh()
+		}
+	})
+
+	nl.app.JigApp().Pages().AddPage("delete-confirm", modal, true, true)
+	nl.app.JigApp().SetFocus(form)
+}
+
+// executeDeleteNamespace performs the namespace deletion asynchronously.
+func (nl *NamespaceList) executeDeleteNamespace(name string) {
+	provider := nl.app.Provider()
+	if provider == nil {
+		ShowErrorModal(nl.app.JigApp(), "Delete Failed", "No provider connected")
+		return
+	}
+
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		err := provider.DeleteNamespace(ctx, name)
+
+		nl.app.JigApp().QueueUpdateDraw(func() {
+			if err != nil {
+				ShowErrorModal(nl.app.JigApp(), "Delete Namespace Failed", err.Error())
+				return
+			}
+
+			nl.app.ToastSuccess(fmt.Sprintf("Namespace '%s' deleted", name))
 			nl.loadData() // Refresh the list
 		})
 	}()
