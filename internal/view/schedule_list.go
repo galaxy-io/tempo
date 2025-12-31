@@ -8,6 +8,7 @@ import (
 	"github.com/atterpac/jig/async"
 	"github.com/atterpac/jig/components"
 	"github.com/atterpac/jig/theme"
+	"github.com/atterpac/jig/validators"
 	"github.com/galaxy-io/tempo/internal/temporal"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -311,16 +312,20 @@ func (sl *ScheduleList) showPauseConfirm() {
 		theme.TagFgDim(), theme.TagFg(), schedule.ID,
 		theme.TagFgDim(), theme.TagFg(), schedule.WorkflowType))
 
-	form := components.NewForm()
-	form.AddTextField("reason", "Reason", "Paused via tempo")
-	form.SetOnSubmit(func(values map[string]any) {
-		reason := values["reason"].(string)
-		sl.closeModal()
-		sl.executePauseSchedule(schedule.ID, reason)
-	})
-	form.SetOnCancel(func() {
-		sl.closeModal()
-	})
+	form := components.NewFormBuilder().
+		Text("reason", "Reason").
+			Value("Paused via tempo").
+			Validate(validators.Required()).
+			Done().
+		OnSubmit(func(values map[string]any) {
+			reason := values["reason"].(string)
+			sl.closeModal()
+			sl.executePauseSchedule(schedule.ID, reason)
+		}).
+		OnCancel(func() {
+			sl.closeModal()
+		}).
+		Build()
 
 	contentFlex.AddItem(infoText, 3, 0, false)
 	contentFlex.AddItem(form, 0, 1, true)
@@ -329,15 +334,6 @@ func (sl *ScheduleList) showPauseConfirm() {
 	modal.SetHints([]components.KeyHint{
 		{Key: "Enter", Description: "Pause"},
 		{Key: "Esc", Description: "Cancel"},
-	})
-	modal.SetOnSubmit(func() {
-		values := form.GetValues()
-		reason := values["reason"].(string)
-		sl.closeModal()
-		sl.executePauseSchedule(schedule.ID, reason)
-	})
-	modal.SetOnCancel(func() {
-		sl.closeModal()
 	})
 
 	sl.app.JigApp().Pages().Push(modal)
@@ -363,16 +359,20 @@ func (sl *ScheduleList) showUnpauseConfirm(s *temporal.Schedule) {
 		theme.TagFgDim(), theme.TagFg(), s.ID,
 		theme.TagFgDim(), theme.TagFg(), s.WorkflowType))
 
-	form := components.NewForm()
-	form.AddTextField("reason", "Reason", "Unpaused via tempo")
-	form.SetOnSubmit(func(values map[string]any) {
-		reason := values["reason"].(string)
-		sl.closeModal()
-		sl.executeUnpauseSchedule(s.ID, reason)
-	})
-	form.SetOnCancel(func() {
-		sl.closeModal()
-	})
+	form := components.NewFormBuilder().
+		Text("reason", "Reason").
+			Value("Unpaused via tempo").
+			Validate(validators.Required()).
+			Done().
+		OnSubmit(func(values map[string]any) {
+			reason := values["reason"].(string)
+			sl.closeModal()
+			sl.executeUnpauseSchedule(s.ID, reason)
+		}).
+		OnCancel(func() {
+			sl.closeModal()
+		}).
+		Build()
 
 	contentFlex.AddItem(infoText, 3, 0, false)
 	contentFlex.AddItem(form, 0, 1, true)
@@ -381,15 +381,6 @@ func (sl *ScheduleList) showUnpauseConfirm(s *temporal.Schedule) {
 	modal.SetHints([]components.KeyHint{
 		{Key: "Enter", Description: "Unpause"},
 		{Key: "Esc", Description: "Cancel"},
-	})
-	modal.SetOnSubmit(func() {
-		values := form.GetValues()
-		reason := values["reason"].(string)
-		sl.closeModal()
-		sl.executeUnpauseSchedule(s.ID, reason)
-	})
-	modal.SetOnCancel(func() {
-		sl.closeModal()
 	})
 
 	sl.app.JigApp().Pages().Push(modal)
@@ -531,19 +522,23 @@ This action cannot be undone.[-]
 		theme.TagFgDim(), theme.TagFg(), schedule.ID,
 		theme.TagFgDim(), theme.TagFg(), schedule.WorkflowType))
 
-	form := components.NewForm()
-	form.AddTextField("confirm", "Type schedule ID to confirm", "")
-	form.SetOnSubmit(func(values map[string]any) {
-		confirm := values["confirm"].(string)
-		if confirm != schedule.ID {
-			return // Must match schedule ID
-		}
-		sl.closeModal()
-		sl.executeDeleteSchedule(schedule.ID)
-	})
-	form.SetOnCancel(func() {
-		sl.closeModal()
-	})
+	form := components.NewFormBuilder().
+		Text("confirm", "Type schedule ID to confirm").
+			Placeholder(schedule.ID).
+			Validate(validators.Required()).
+			Done().
+		OnSubmit(func(values map[string]any) {
+			confirm := values["confirm"].(string)
+			if confirm != schedule.ID {
+				return // Must match schedule ID
+			}
+			sl.closeModal()
+			sl.executeDeleteSchedule(schedule.ID)
+		}).
+		OnCancel(func() {
+			sl.closeModal()
+		}).
+		Build()
 
 	contentFlex.AddItem(warningText, 6, 0, false)
 	contentFlex.AddItem(form, 0, 1, true)
@@ -552,18 +547,6 @@ This action cannot be undone.[-]
 	modal.SetHints([]components.KeyHint{
 		{Key: "Enter", Description: "Delete"},
 		{Key: "Esc", Description: "Cancel"},
-	})
-	modal.SetOnSubmit(func() {
-		values := form.GetValues()
-		confirm := values["confirm"].(string)
-		if confirm != schedule.ID {
-			return
-		}
-		sl.closeModal()
-		sl.executeDeleteSchedule(schedule.ID)
-	})
-	modal.SetOnCancel(func() {
-		sl.closeModal()
 	})
 
 	sl.app.JigApp().Pages().Push(modal)

@@ -7,69 +7,62 @@ import (
 
 	"github.com/atterpac/jig/components"
 	"github.com/atterpac/jig/theme"
+	"github.com/atterpac/jig/validators"
 	"github.com/galaxy-io/tempo/internal/temporal"
 )
 
 // showSignalWithStart displays a modal for SignalWithStart operation.
 func (wl *WorkflowList) showSignalWithStart() {
+	form := components.NewFormBuilder().
+		Text("workflowId", "Workflow ID").
+			Placeholder("Enter workflow ID").
+			Validate(validators.Required()).
+			Done().
+		Text("workflowType", "Workflow Type").
+			Placeholder("Enter workflow type").
+			Validate(validators.Required()).
+			Done().
+		Text("taskQueue", "Task Queue").
+			Placeholder("Enter task queue").
+			Validate(validators.Required()).
+			Done().
+		Text("signalName", "Signal Name").
+			Placeholder("Enter signal name").
+			Validate(validators.Required()).
+			Done().
+		Text("signalInput", "Signal Input (JSON, optional)").
+			Placeholder("{}").
+			Done().
+		Text("workflowInput", "Workflow Input (JSON, optional)").
+			Placeholder("{}").
+			Done().
+		OnSubmit(func(values map[string]any) {
+			workflowID := values["workflowId"].(string)
+			workflowType := values["workflowType"].(string)
+			taskQueue := values["taskQueue"].(string)
+			signalName := values["signalName"].(string)
+			signalInput := values["signalInput"].(string)
+			workflowInput := values["workflowInput"].(string)
+
+			wl.closeModal()
+			wl.executeSignalWithStart(workflowID, workflowType, taskQueue, signalName, signalInput, workflowInput)
+		}).
+		OnCancel(func() {
+			wl.closeModal()
+		}).
+		Build()
+
 	modal := components.NewModal(components.ModalConfig{
 		Title:    fmt.Sprintf("%s Signal With Start (%s)", theme.IconInfo, wl.namespace),
 		Width:    70,
 		Height:   20,
 		Backdrop: true,
 	})
-
-	form := components.NewForm()
-	form.AddTextField("workflowId", "Workflow ID", "")
-	form.AddTextField("workflowType", "Workflow Type", "")
-	form.AddTextField("taskQueue", "Task Queue", "")
-	form.AddTextField("signalName", "Signal Name", "")
-	form.AddTextField("signalInput", "Signal Input (JSON, optional)", "")
-	form.AddTextField("workflowInput", "Workflow Input (JSON, optional)", "")
-	form.SetOnSubmit(func(values map[string]any) {
-		workflowID := values["workflowId"].(string)
-		workflowType := values["workflowType"].(string)
-		taskQueue := values["taskQueue"].(string)
-		signalName := values["signalName"].(string)
-		signalInput := values["signalInput"].(string)
-		workflowInput := values["workflowInput"].(string)
-
-		// Validate required fields
-		if workflowID == "" || workflowType == "" || taskQueue == "" || signalName == "" {
-			return
-		}
-
-		wl.closeModal()
-		wl.executeSignalWithStart(workflowID, workflowType, taskQueue, signalName, signalInput, workflowInput)
-	})
-	form.SetOnCancel(func() {
-		wl.closeModal()
-	})
-
 	modal.SetContent(form)
 	modal.SetHints([]components.KeyHint{
 		{Key: "Tab", Description: "Next field"},
-		{Key: "Enter", Description: "Execute"},
+		{Key: "Ctrl+S", Description: "Execute"},
 		{Key: "Esc", Description: "Cancel"},
-	})
-	modal.SetOnSubmit(func() {
-		values := form.GetValues()
-		workflowID := values["workflowId"].(string)
-		workflowType := values["workflowType"].(string)
-		taskQueue := values["taskQueue"].(string)
-		signalName := values["signalName"].(string)
-		signalInput := values["signalInput"].(string)
-		workflowInput := values["workflowInput"].(string)
-
-		if workflowID == "" || workflowType == "" || taskQueue == "" || signalName == "" {
-			return
-		}
-
-		wl.closeModal()
-		wl.executeSignalWithStart(workflowID, workflowType, taskQueue, signalName, signalInput, workflowInput)
-	})
-	modal.SetOnCancel(func() {
-		wl.closeModal()
 	})
 
 	wl.app.JigApp().Pages().Push(modal)

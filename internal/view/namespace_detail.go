@@ -9,6 +9,7 @@ import (
 
 	"github.com/atterpac/jig/components"
 	"github.com/atterpac/jig/theme"
+	"github.com/atterpac/jig/validators"
 	"github.com/galaxy-io/tempo/internal/temporal"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -343,56 +344,45 @@ func (nd *NamespaceDetail) showEditForm() {
 		}
 	}
 
-	form := components.NewForm()
-	form.AddTextField("description", "Description", nd.detail.Description)
-	form.AddTextField("ownerEmail", "Owner Email", nd.detail.OwnerEmail)
-	form.AddTextField("retention", "Retention (days)", strconv.Itoa(currentRetention))
+	form := components.NewFormBuilder().
+		Text("description", "Description").
+			Value(nd.detail.Description).
+			Placeholder("Enter description").
+			Done().
+		Text("ownerEmail", "Owner Email").
+			Value(nd.detail.OwnerEmail).
+			Placeholder("owner@example.com").
+			Done().
+		Text("retention", "Retention (days)").
+			Value(strconv.Itoa(currentRetention)).
+			Validate(validators.Required()).
+			Done().
+		OnSubmit(func(values map[string]any) {
+			retentionStr := values["retention"].(string)
+			retentionDays, err := strconv.Atoi(retentionStr)
+			if err != nil || retentionDays < 1 {
+				return // Invalid retention
+			}
 
-	form.SetOnSubmit(func(values map[string]any) {
-		retentionStr := values["retention"].(string)
-		retentionDays, err := strconv.Atoi(retentionStr)
-		if err != nil || retentionDays < 1 {
-			return // Invalid retention
-		}
-
-		updateReq := temporal.NamespaceUpdateRequest{
-			Name:          nd.namespace,
-			Description:   values["description"].(string),
-			OwnerEmail:    values["ownerEmail"].(string),
-			RetentionDays: retentionDays,
-		}
-		nd.closeModal()
-		nd.showUpdateConfirm(updateReq)
-	})
-	form.SetOnCancel(func() {
-		nd.closeModal()
-	})
+			updateReq := temporal.NamespaceUpdateRequest{
+				Name:          nd.namespace,
+				Description:   values["description"].(string),
+				OwnerEmail:    values["ownerEmail"].(string),
+				RetentionDays: retentionDays,
+			}
+			nd.closeModal()
+			nd.showUpdateConfirm(updateReq)
+		}).
+		OnCancel(func() {
+			nd.closeModal()
+		}).
+		Build()
 
 	modal.SetContent(form)
 	modal.SetHints([]components.KeyHint{
 		{Key: "Tab", Description: "Next field"},
 		{Key: "Enter", Description: "Save"},
 		{Key: "Esc", Description: "Cancel"},
-	})
-	modal.SetOnSubmit(func() {
-		values := form.GetValues()
-		retentionStr := values["retention"].(string)
-		retentionDays, err := strconv.Atoi(retentionStr)
-		if err != nil || retentionDays < 1 {
-			return
-		}
-
-		updateReq := temporal.NamespaceUpdateRequest{
-			Name:          nd.namespace,
-			Description:   values["description"].(string),
-			OwnerEmail:    values["ownerEmail"].(string),
-			RetentionDays: retentionDays,
-		}
-		nd.closeModal()
-		nd.showUpdateConfirm(updateReq)
-	})
-	modal.SetOnCancel(func() {
-		nd.closeModal()
 	})
 
 	nd.app.JigApp().Pages().Push(modal)
@@ -494,19 +484,23 @@ func (nd *NamespaceDetail) showDeprecateConfirm() {
 		theme.TagError(),
 		theme.TagFgDim(), theme.TagFg(), nd.namespace))
 
-	form := components.NewForm()
-	form.AddTextField("confirm", "Type namespace name to confirm", "")
-	form.SetOnSubmit(func(values map[string]any) {
-		confirm := values["confirm"].(string)
-		if confirm != nd.namespace {
-			return // Must match namespace name
-		}
-		nd.closeModal()
-		nd.executeDeprecate()
-	})
-	form.SetOnCancel(func() {
-		nd.closeModal()
-	})
+	form := components.NewFormBuilder().
+		Text("confirm", "Type namespace name to confirm").
+			Placeholder(nd.namespace).
+			Validate(validators.Required()).
+			Done().
+		OnSubmit(func(values map[string]any) {
+			confirm := values["confirm"].(string)
+			if confirm != nd.namespace {
+				return // Must match namespace name
+			}
+			nd.closeModal()
+			nd.executeDeprecate()
+		}).
+		OnCancel(func() {
+			nd.closeModal()
+		}).
+		Build()
 
 	contentFlex.AddItem(warningText, 8, 0, false)
 	contentFlex.AddItem(form, 0, 1, true)
@@ -515,18 +509,6 @@ func (nd *NamespaceDetail) showDeprecateConfirm() {
 	modal.SetHints([]components.KeyHint{
 		{Key: "Enter", Description: "Deprecate"},
 		{Key: "Esc", Description: "Cancel"},
-	})
-	modal.SetOnSubmit(func() {
-		values := form.GetValues()
-		confirm := values["confirm"].(string)
-		if confirm != nd.namespace {
-			return
-		}
-		nd.closeModal()
-		nd.executeDeprecate()
-	})
-	modal.SetOnCancel(func() {
-		nd.closeModal()
 	})
 
 	nd.app.JigApp().Pages().Push(modal)

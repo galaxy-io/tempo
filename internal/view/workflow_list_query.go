@@ -12,15 +12,19 @@ import (
 )
 
 func (wl *WorkflowList) showVisibilityQuery() {
-	modal := components.NewModal(components.ModalConfig{
-		Title:    fmt.Sprintf("%s Visibility Query", theme.IconSearch),
-		Width:    70,
-		Height:   16,
-		Backdrop: true,
-	})
-
-	form := components.NewForm()
-	form.AddTextField("query", "Query", wl.visibilityQuery)
+	form := components.NewFormBuilder().
+		Text("query", "Query").
+			Value(wl.visibilityQuery).
+			Done().
+		OnSubmit(func(values map[string]any) {
+			query := values["query"].(string)
+			wl.closeModal()
+			wl.applyVisibilityQuery(query)
+		}).
+		OnCancel(func() {
+			wl.closeModal()
+		}).
+		Build()
 
 	helpText := tview.NewTextView().SetDynamicColors(true)
 	helpText.SetBackgroundColor(theme.Bg())
@@ -36,28 +40,16 @@ func (wl *WorkflowList) showVisibilityQuery() {
 		AddItem(helpText, 0, 1, false)
 	content.SetBackgroundColor(theme.Bg())
 
-	form.SetOnSubmit(func(values map[string]any) {
-		query := values["query"].(string)
-		wl.closeModal()
-		wl.applyVisibilityQuery(query)
+	modal := components.NewModal(components.ModalConfig{
+		Title:    fmt.Sprintf("%s Visibility Query", theme.IconSearch),
+		Width:    70,
+		Height:   16,
+		Backdrop: true,
 	})
-	form.SetOnCancel(func() {
-		wl.closeModal()
-	})
-
 	modal.SetContent(content)
 	modal.SetHints([]components.KeyHint{
-		{Key: "Enter", Description: "Apply"},
+		{Key: "Ctrl+S", Description: "Apply"},
 		{Key: "Esc", Description: "Cancel"},
-	})
-	modal.SetOnSubmit(func() {
-		values := form.GetValues()
-		query := values["query"].(string)
-		wl.closeModal()
-		wl.applyVisibilityQuery(query)
-	})
-	modal.SetOnCancel(func() {
-		wl.closeModal()
 	})
 
 	wl.app.JigApp().Pages().Push(modal)
@@ -147,13 +139,6 @@ func (wl *WorkflowList) showQueryTemplates() {
 }
 
 func (wl *WorkflowList) showDateRangePicker() {
-	modal := components.NewModal(components.ModalConfig{
-		Title:    fmt.Sprintf("%s Date Range Filter", theme.IconInfo),
-		Width:    55,
-		Height:   14,
-		Backdrop: true,
-	})
-
 	presets := []string{
 		"Last Hour",
 		"Last 24 Hours",
@@ -163,31 +148,29 @@ func (wl *WorkflowList) showDateRangePicker() {
 		"Yesterday",
 	}
 
-	form := components.NewForm()
-	form.AddSelect("preset", "Time Range", presets)
+	form := components.NewFormBuilder().
+		Select("preset", "Time Range", presets).
+			Done().
+		OnSubmit(func(values map[string]any) {
+			preset := values["preset"].(string)
+			wl.closeModal()
+			wl.applyDatePreset(preset)
+		}).
+		OnCancel(func() {
+			wl.closeModal()
+		}).
+		Build()
 
-	form.SetOnSubmit(func(values map[string]any) {
-		preset := values["preset"].(string)
-		wl.closeModal()
-		wl.applyDatePreset(preset)
+	modal := components.NewModal(components.ModalConfig{
+		Title:    fmt.Sprintf("%s Date Range Filter", theme.IconInfo),
+		Width:    55,
+		Height:   14,
+		Backdrop: true,
 	})
-	form.SetOnCancel(func() {
-		wl.closeModal()
-	})
-
 	modal.SetContent(form)
 	modal.SetHints([]components.KeyHint{
-		{Key: "Enter", Description: "Apply"},
+		{Key: "Ctrl+S", Description: "Apply"},
 		{Key: "Esc", Description: "Cancel"},
-	})
-	modal.SetOnSubmit(func() {
-		values := form.GetValues()
-		preset := values["preset"].(string)
-		wl.closeModal()
-		wl.applyDatePreset(preset)
-	})
-	modal.SetOnCancel(func() {
-		wl.closeModal()
 	})
 
 	wl.app.JigApp().Pages().Push(modal)
@@ -304,45 +287,40 @@ func (wl *WorkflowList) showSaveFilter() {
 		return
 	}
 
-	modal := components.NewModal(components.ModalConfig{
-		Title:    fmt.Sprintf("%s Save Filter", theme.IconInfo),
-		Width:    60,
-		Height:   12,
-		Backdrop: true,
-	})
-
-	form := components.NewForm()
-	form.AddTextField("name", "Filter Name", "")
+	currentQuery := wl.visibilityQuery
+	form := components.NewFormBuilder().
+		Text("name", "Filter Name").
+			Placeholder("Enter a name for this filter").
+			Done().
+		OnSubmit(func(values map[string]any) {
+			// For now, just add to history (persistent save would require config storage)
+			wl.addToHistory(currentQuery)
+			wl.closeModal()
+		}).
+		OnCancel(func() {
+			wl.closeModal()
+		}).
+		Build()
 
 	queryText := tview.NewTextView().SetDynamicColors(true)
 	queryText.SetBackgroundColor(theme.Bg())
-	queryText.SetText(fmt.Sprintf("[%s]Query:[-] %s", theme.TagFgDim(), wl.visibilityQuery))
+	queryText.SetText(fmt.Sprintf("[%s]Query:[-] %s", theme.TagFgDim(), currentQuery))
 
 	content := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(queryText, 2, 0, false).
 		AddItem(form, 0, 1, true)
 	content.SetBackgroundColor(theme.Bg())
 
-	form.SetOnSubmit(func(values map[string]any) {
-		// For now, just add to history (persistent save would require config storage)
-		wl.addToHistory(wl.visibilityQuery)
-		wl.closeModal()
+	modal := components.NewModal(components.ModalConfig{
+		Title:    fmt.Sprintf("%s Save Filter", theme.IconInfo),
+		Width:    60,
+		Height:   12,
+		Backdrop: true,
 	})
-	form.SetOnCancel(func() {
-		wl.closeModal()
-	})
-
 	modal.SetContent(content)
 	modal.SetHints([]components.KeyHint{
-		{Key: "Enter", Description: "Save"},
+		{Key: "Ctrl+S", Description: "Save"},
 		{Key: "Esc", Description: "Cancel"},
-	})
-	modal.SetOnSubmit(func() {
-		wl.addToHistory(wl.visibilityQuery)
-		wl.closeModal()
-	})
-	modal.SetOnCancel(func() {
-		wl.closeModal()
 	})
 
 	wl.app.JigApp().Pages().Push(modal)

@@ -9,6 +9,7 @@ import (
 	"github.com/atterpac/jig/async"
 	"github.com/atterpac/jig/components"
 	"github.com/atterpac/jig/theme"
+	"github.com/atterpac/jig/validators"
 	"github.com/galaxy-io/tempo/internal/temporal"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -408,57 +409,50 @@ func (nl *NamespaceList) showSignalWithStart(namespace string) {
 		Backdrop: true,
 	})
 
-	form := components.NewForm()
-	form.AddTextField("workflowId", "Workflow ID", "")
-	form.AddTextField("workflowType", "Workflow Type", "")
-	form.AddTextField("taskQueue", "Task Queue", "")
-	form.AddTextField("signalName", "Signal Name", "")
-	form.AddTextField("signalInput", "Signal Input (JSON, optional)", "")
-	form.AddTextField("workflowInput", "Workflow Input (JSON, optional)", "")
-	form.SetOnSubmit(func(values map[string]any) {
-		workflowID := values["workflowId"].(string)
-		workflowType := values["workflowType"].(string)
-		taskQueue := values["taskQueue"].(string)
-		signalName := values["signalName"].(string)
-		signalInput := values["signalInput"].(string)
-		workflowInput := values["workflowInput"].(string)
+	form := components.NewFormBuilder().
+		Text("workflowId", "Workflow ID").
+			Placeholder("Enter workflow ID").
+			Validate(validators.Required()).
+			Done().
+		Text("workflowType", "Workflow Type").
+			Placeholder("Enter workflow type").
+			Validate(validators.Required()).
+			Done().
+		Text("taskQueue", "Task Queue").
+			Placeholder("Enter task queue").
+			Validate(validators.Required()).
+			Done().
+		Text("signalName", "Signal Name").
+			Placeholder("Enter signal name").
+			Validate(validators.Required()).
+			Done().
+		Text("signalInput", "Signal Input (JSON, optional)").
+			Placeholder("{}").
+			Done().
+		Text("workflowInput", "Workflow Input (JSON, optional)").
+			Placeholder("{}").
+			Done().
+		OnSubmit(func(values map[string]any) {
+			workflowID := values["workflowId"].(string)
+			workflowType := values["workflowType"].(string)
+			taskQueue := values["taskQueue"].(string)
+			signalName := values["signalName"].(string)
+			signalInput := values["signalInput"].(string)
+			workflowInput := values["workflowInput"].(string)
 
-		// Validate required fields
-		if workflowID == "" || workflowType == "" || taskQueue == "" || signalName == "" {
-			return
-		}
-
-		nl.closeModal()
-		nl.executeSignalWithStart(namespace, workflowID, workflowType, taskQueue, signalName, signalInput, workflowInput)
-	})
-	form.SetOnCancel(func() {
-		nl.closeModal()
-	})
+			nl.closeModal()
+			nl.executeSignalWithStart(namespace, workflowID, workflowType, taskQueue, signalName, signalInput, workflowInput)
+		}).
+		OnCancel(func() {
+			nl.closeModal()
+		}).
+		Build()
 
 	modal.SetContent(form)
 	modal.SetHints([]components.KeyHint{
 		{Key: "Tab", Description: "Next field"},
 		{Key: "Enter", Description: "Execute"},
 		{Key: "Esc", Description: "Cancel"},
-	})
-	modal.SetOnSubmit(func() {
-		values := form.GetValues()
-		workflowID := values["workflowId"].(string)
-		workflowType := values["workflowType"].(string)
-		taskQueue := values["taskQueue"].(string)
-		signalName := values["signalName"].(string)
-		signalInput := values["signalInput"].(string)
-		workflowInput := values["workflowInput"].(string)
-
-		if workflowID == "" || workflowType == "" || taskQueue == "" || signalName == "" {
-			return
-		}
-
-		nl.closeModal()
-		nl.executeSignalWithStart(namespace, workflowID, workflowType, taskQueue, signalName, signalInput, workflowInput)
-	})
-	modal.SetOnCancel(func() {
-		nl.closeModal()
 	})
 
 	nl.app.JigApp().Pages().Push(modal)
@@ -513,67 +507,49 @@ func (nl *NamespaceList) showCreateNamespaceForm() {
 		Backdrop: true,
 	})
 
-	form := components.NewForm()
-	form.AddTextField("name", "Namespace Name", "")
-	form.AddTextField("description", "Description", "")
-	form.AddTextField("ownerEmail", "Owner Email", "")
-	form.AddTextField("retention", "Retention (days)", "3")
+	form := components.NewFormBuilder().
+		Text("name", "Namespace Name").
+			Placeholder("Enter namespace name").
+			Validate(validators.Required()).
+			Done().
+		Text("description", "Description").
+			Placeholder("Enter description").
+			Done().
+		Text("ownerEmail", "Owner Email").
+			Placeholder("owner@example.com").
+			Done().
+		Text("retention", "Retention (days)").
+			Value("3").
+			Validate(validators.Required()).
+			Done().
+		OnSubmit(func(values map[string]any) {
+			name := values["name"].(string)
 
-	form.SetOnSubmit(func(values map[string]any) {
-		name := values["name"].(string)
-		if name == "" {
-			return // Name is required
-		}
+			retentionStr := values["retention"].(string)
+			retentionDays, err := strconv.Atoi(retentionStr)
+			if err != nil || retentionDays < 1 {
+				retentionDays = 3 // Default to 3 days
+			}
 
-		retentionStr := values["retention"].(string)
-		retentionDays, err := strconv.Atoi(retentionStr)
-		if err != nil || retentionDays < 1 {
-			retentionDays = 3 // Default to 3 days
-		}
-
-		createReq := temporal.NamespaceCreateRequest{
-			Name:          name,
-			Description:   values["description"].(string),
-			OwnerEmail:    values["ownerEmail"].(string),
-			RetentionDays: retentionDays,
-		}
-		nl.closeModal()
-		nl.executeCreateNamespace(createReq)
-	})
-	form.SetOnCancel(func() {
-		nl.closeModal()
-	})
+			createReq := temporal.NamespaceCreateRequest{
+				Name:          name,
+				Description:   values["description"].(string),
+				OwnerEmail:    values["ownerEmail"].(string),
+				RetentionDays: retentionDays,
+			}
+			nl.closeModal()
+			nl.executeCreateNamespace(createReq)
+		}).
+		OnCancel(func() {
+			nl.closeModal()
+		}).
+		Build()
 
 	modal.SetContent(form)
 	modal.SetHints([]components.KeyHint{
 		{Key: "Tab", Description: "Next field"},
 		{Key: "Enter", Description: "Create"},
 		{Key: "Esc", Description: "Cancel"},
-	})
-	modal.SetOnSubmit(func() {
-		values := form.GetValues()
-		name := values["name"].(string)
-		if name == "" {
-			return
-		}
-
-		retentionStr := values["retention"].(string)
-		retentionDays, err := strconv.Atoi(retentionStr)
-		if err != nil || retentionDays < 1 {
-			retentionDays = 3
-		}
-
-		createReq := temporal.NamespaceCreateRequest{
-			Name:          name,
-			Description:   values["description"].(string),
-			OwnerEmail:    values["ownerEmail"].(string),
-			RetentionDays: retentionDays,
-		}
-		nl.closeModal()
-		nl.executeCreateNamespace(createReq)
-	})
-	modal.SetOnCancel(func() {
-		nl.closeModal()
 	})
 
 	nl.app.JigApp().Pages().Push(modal)
@@ -651,56 +627,45 @@ func (nl *NamespaceList) showEditFormWithData(name, description, ownerEmail, ret
 		}
 	}
 
-	form := components.NewForm()
-	form.AddTextField("description", "Description", description)
-	form.AddTextField("ownerEmail", "Owner Email", ownerEmail)
-	form.AddTextField("retention", "Retention (days)", strconv.Itoa(currentRetention))
+	form := components.NewFormBuilder().
+		Text("description", "Description").
+			Value(description).
+			Placeholder("Enter description").
+			Done().
+		Text("ownerEmail", "Owner Email").
+			Value(ownerEmail).
+			Placeholder("owner@example.com").
+			Done().
+		Text("retention", "Retention (days)").
+			Value(strconv.Itoa(currentRetention)).
+			Validate(validators.Required()).
+			Done().
+		OnSubmit(func(values map[string]any) {
+			retentionStr := values["retention"].(string)
+			retentionDays, err := strconv.Atoi(retentionStr)
+			if err != nil || retentionDays < 1 {
+				return // Invalid retention
+			}
 
-	form.SetOnSubmit(func(values map[string]any) {
-		retentionStr := values["retention"].(string)
-		retentionDays, err := strconv.Atoi(retentionStr)
-		if err != nil || retentionDays < 1 {
-			return // Invalid retention
-		}
-
-		updateReq := temporal.NamespaceUpdateRequest{
-			Name:          name,
-			Description:   values["description"].(string),
-			OwnerEmail:    values["ownerEmail"].(string),
-			RetentionDays: retentionDays,
-		}
-		nl.closeModal()
-		nl.executeUpdateNamespace(updateReq)
-	})
-	form.SetOnCancel(func() {
-		nl.closeModal()
-	})
+			updateReq := temporal.NamespaceUpdateRequest{
+				Name:          name,
+				Description:   values["description"].(string),
+				OwnerEmail:    values["ownerEmail"].(string),
+				RetentionDays: retentionDays,
+			}
+			nl.closeModal()
+			nl.executeUpdateNamespace(updateReq)
+		}).
+		OnCancel(func() {
+			nl.closeModal()
+		}).
+		Build()
 
 	modal.SetContent(form)
 	modal.SetHints([]components.KeyHint{
 		{Key: "Tab", Description: "Next field"},
 		{Key: "Enter", Description: "Save"},
 		{Key: "Esc", Description: "Cancel"},
-	})
-	modal.SetOnSubmit(func() {
-		values := form.GetValues()
-		retentionStr := values["retention"].(string)
-		retentionDays, err := strconv.Atoi(retentionStr)
-		if err != nil || retentionDays < 1 {
-			return
-		}
-
-		updateReq := temporal.NamespaceUpdateRequest{
-			Name:          name,
-			Description:   values["description"].(string),
-			OwnerEmail:    values["ownerEmail"].(string),
-			RetentionDays: retentionDays,
-		}
-		nl.closeModal()
-		nl.executeUpdateNamespace(updateReq)
-	})
-	modal.SetOnCancel(func() {
-		nl.closeModal()
 	})
 
 	nl.app.JigApp().Pages().Push(modal)
@@ -769,27 +734,31 @@ func (nl *NamespaceList) showDeprecateConfirm() {
 		theme.TagError(),
 		theme.TagFgDim(), theme.TagFg(), name))
 
-	form := components.NewForm()
-	form.AddTextField("confirm", "Type namespace name to confirm", "")
-	form.SetOnSubmit(func(values map[string]any) {
-		confirm := values["confirm"].(string)
-		if confirm != name {
-			return // Must match namespace name
-		}
-		nl.closeModal()
-		if wasAutoRefresh {
-			nl.autoRefresh = true
-			nl.startAutoRefresh()
-		}
-		nl.executeDeprecateNamespace(name)
-	})
-	form.SetOnCancel(func() {
-		nl.closeModal()
-		if wasAutoRefresh {
-			nl.autoRefresh = true
-			nl.startAutoRefresh()
-		}
-	})
+	form := components.NewFormBuilder().
+		Text("confirm", "Type namespace name to confirm").
+			Placeholder(name).
+			Validate(validators.Required()).
+			Done().
+		OnSubmit(func(values map[string]any) {
+			confirm := values["confirm"].(string)
+			if confirm != name {
+				return // Must match namespace name
+			}
+			nl.closeModal()
+			if wasAutoRefresh {
+				nl.autoRefresh = true
+				nl.startAutoRefresh()
+			}
+			nl.executeDeprecateNamespace(name)
+		}).
+		OnCancel(func() {
+			nl.closeModal()
+			if wasAutoRefresh {
+				nl.autoRefresh = true
+				nl.startAutoRefresh()
+			}
+		}).
+		Build()
 
 	contentFlex.AddItem(warningText, 8, 0, false)
 	contentFlex.AddItem(form, 0, 1, true)
@@ -798,26 +767,6 @@ func (nl *NamespaceList) showDeprecateConfirm() {
 	modal.SetHints([]components.KeyHint{
 		{Key: "Enter", Description: "Deprecate"},
 		{Key: "Esc", Description: "Cancel"},
-	})
-	modal.SetOnSubmit(func() {
-		values := form.GetValues()
-		confirm := values["confirm"].(string)
-		if confirm != name {
-			return
-		}
-		nl.closeModal()
-		if wasAutoRefresh {
-			nl.autoRefresh = true
-			nl.startAutoRefresh()
-		}
-		nl.executeDeprecateNamespace(name)
-	})
-	modal.SetOnCancel(func() {
-		nl.closeModal()
-		if wasAutoRefresh {
-			nl.autoRefresh = true
-			nl.startAutoRefresh()
-		}
 	})
 
 	nl.app.JigApp().Pages().Push(modal)
@@ -890,27 +839,31 @@ Deleting a namespace will permanently remove:
 		theme.TagFgDim(), theme.TagFg(), name,
 		theme.TagFgDim(), theme.TagError(), state))
 
-	form := components.NewForm()
-	form.AddTextField("confirm", "Type namespace name to confirm", "")
-	form.SetOnSubmit(func(values map[string]any) {
-		confirm := values["confirm"].(string)
-		if confirm != name {
-			return // Must match namespace name
-		}
-		nl.closeModal()
-		if wasAutoRefresh {
-			nl.autoRefresh = true
-			nl.startAutoRefresh()
-		}
-		nl.executeDeleteNamespace(name)
-	})
-	form.SetOnCancel(func() {
-		nl.closeModal()
-		if wasAutoRefresh {
-			nl.autoRefresh = true
-			nl.startAutoRefresh()
-		}
-	})
+	form := components.NewFormBuilder().
+		Text("confirm", "Type namespace name to confirm").
+			Placeholder(name).
+			Validate(validators.Required()).
+			Done().
+		OnSubmit(func(values map[string]any) {
+			confirm := values["confirm"].(string)
+			if confirm != name {
+				return // Must match namespace name
+			}
+			nl.closeModal()
+			if wasAutoRefresh {
+				nl.autoRefresh = true
+				nl.startAutoRefresh()
+			}
+			nl.executeDeleteNamespace(name)
+		}).
+		OnCancel(func() {
+			nl.closeModal()
+			if wasAutoRefresh {
+				nl.autoRefresh = true
+				nl.startAutoRefresh()
+			}
+		}).
+		Build()
 
 	contentFlex.AddItem(warningText, 10, 0, false)
 	contentFlex.AddItem(form, 0, 1, true)
@@ -919,26 +872,6 @@ Deleting a namespace will permanently remove:
 	modal.SetHints([]components.KeyHint{
 		{Key: "Enter", Description: "Delete"},
 		{Key: "Esc", Description: "Cancel"},
-	})
-	modal.SetOnSubmit(func() {
-		values := form.GetValues()
-		confirm := values["confirm"].(string)
-		if confirm != name {
-			return
-		}
-		nl.closeModal()
-		if wasAutoRefresh {
-			nl.autoRefresh = true
-			nl.startAutoRefresh()
-		}
-		nl.executeDeleteNamespace(name)
-	})
-	modal.SetOnCancel(func() {
-		nl.closeModal()
-		if wasAutoRefresh {
-			nl.autoRefresh = true
-			nl.startAutoRefresh()
-		}
 	})
 
 	nl.app.JigApp().Pages().Push(modal)

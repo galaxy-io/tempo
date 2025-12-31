@@ -9,6 +9,7 @@ import (
 	"github.com/atterpac/jig/theme"
 	"github.com/atterpac/jig/theme/themes"
 	"github.com/atterpac/jig/util"
+	"github.com/atterpac/jig/validators"
 	"github.com/galaxy-io/tempo/internal/config"
 	"github.com/galaxy-io/tempo/internal/update"
 	"github.com/gdamore/tcell/v2"
@@ -400,11 +401,11 @@ func (m *ProfileModal) Focus(delegate func(p tview.Primitive)) {
 // ProfileForm for creating/editing profiles.
 type ProfileForm struct {
 	*components.Modal
-	form       *components.Form
-	isEdit     bool
-	editName   string
-	onSave     func(string, config.ConnectionConfig)
-	onCancel   func()
+	form     *components.Form
+	isEdit   bool
+	editName string
+	onSave   func(string, config.ConnectionConfig)
+	onCancel func()
 }
 
 func NewProfileForm() *ProfileForm {
@@ -421,129 +422,76 @@ func NewProfileForm() *ProfileForm {
 }
 
 func (f *ProfileForm) setup() {
-	f.form = components.NewForm()
-	f.form.AddTextField("name", "Profile Name", "")
-	f.form.AddTextField("address", "Server Address", "localhost:7233")
-	f.form.AddTextField("namespace", "Default Namespace", "default")
-	f.form.AddTextField("tlsCert", "TLS Cert Path (optional)", "")
-	f.form.AddTextField("tlsKey", "TLS Key Path (optional)", "")
-	f.form.AddTextField("tlsCA", "TLS CA Path (optional)", "")
-	f.form.AddTextField("tlsServerName", "TLS Server Name (optional)", "")
-	f.form.AddSelect("tlsSkipVerify", "Skip TLS Verify", []string{"No", "Yes"})
-
-	f.form.SetOnSubmit(func(values map[string]any) {
-		name := values["name"].(string)
-		if name == "" {
-			return
-		}
-
-		skipVerify := values["tlsSkipVerify"].(string) == "Yes"
-
-		cfg := config.ConnectionConfig{
-			Address:   values["address"].(string),
-			Namespace: values["namespace"].(string),
-			TLS: config.TLSConfig{
-				Cert:       values["tlsCert"].(string),
-				Key:        values["tlsKey"].(string),
-				CA:         values["tlsCA"].(string),
-				ServerName: values["tlsServerName"].(string),
-				SkipVerify: skipVerify,
-			},
-		}
-
-		if f.onSave != nil {
-			f.onSave(name, cfg)
-		}
-	})
-	f.form.SetOnCancel(func() {
-		if f.onCancel != nil {
-			f.onCancel()
-		}
-	})
+	f.form = f.buildForm("", config.ConnectionConfig{
+		Address:   "localhost:7233",
+		Namespace: "default",
+	}, false)
 
 	f.Modal.SetContent(f.form)
 	f.Modal.SetHints([]components.KeyHint{
 		{Key: "Tab", Description: "Next field"},
-		{Key: "Enter", Description: "Save"},
+		{Key: "Ctrl+S", Description: "Save"},
 		{Key: "Esc", Description: "Cancel"},
-	})
-	f.Modal.SetOnSubmit(func() {
-		values := f.form.GetValues()
-		name := values["name"].(string)
-		if name == "" {
-			return
-		}
-
-		skipVerify := values["tlsSkipVerify"].(string) == "Yes"
-
-		cfg := config.ConnectionConfig{
-			Address:   values["address"].(string),
-			Namespace: values["namespace"].(string),
-			TLS: config.TLSConfig{
-				Cert:       values["tlsCert"].(string),
-				Key:        values["tlsKey"].(string),
-				CA:         values["tlsCA"].(string),
-				ServerName: values["tlsServerName"].(string),
-				SkipVerify: skipVerify,
-			},
-		}
-
-		if f.onSave != nil {
-			f.onSave(name, cfg)
-		}
-	})
-	f.Modal.SetOnCancel(func() {
-		if f.onCancel != nil {
-			f.onCancel()
-		}
 	})
 }
 
-func (f *ProfileForm) SetProfile(name string, cfg config.ConnectionConfig) {
-	f.isEdit = name != ""
-	f.editName = name
+func (f *ProfileForm) buildForm(name string, cfg config.ConnectionConfig, isEdit bool) *components.Form {
+	builder := components.NewFormBuilder()
 
-	if f.isEdit {
-		f.Modal.SetTitle(fmt.Sprintf("%s Edit Profile: %s", theme.IconInfo, name))
+	// Name field - required for new profiles
+	if isEdit {
+		builder.Text("name", "Profile Name").
+			Value(name).
+			Done()
 	} else {
-		f.Modal.SetTitle(fmt.Sprintf("%s New Profile", theme.IconInfo))
+		builder.Text("name", "Profile Name").
+			Placeholder("Enter profile name").
+			Validate(validators.Required(), validators.MinLength(1)).
+			Done()
 	}
 
-	// Rebuild form with new values
-	f.form = components.NewForm()
-	if f.isEdit {
-		// Don't allow editing the name for existing profiles
-		f.form.AddTextField("name", "Profile Name", name)
-	} else {
-		f.form.AddTextField("name", "Profile Name", "")
-	}
-	f.form.AddTextField("address", "Server Address", "localhost:7233")
-	f.form.AddTextField("namespace", "Default Namespace", "default")
-	f.form.AddTextField("tlsCert", "TLS Cert Path (optional)", "")
-	f.form.AddTextField("tlsKey", "TLS Key Path (optional)", "")
-	f.form.AddTextField("tlsCA", "TLS CA Path (optional)", "")
-	f.form.AddTextField("tlsServerName", "TLS Server Name (optional)", "")
+	// Connection settings
+	builder.Text("address", "Server Address").
+		Placeholder("localhost:7233").
+		Value(cfg.Address).
+		Validate(validators.Required()).
+		Done()
 
-	f.form.AddSelect("tlsSkipVerify", "Skip TLS Verify", []string{"No", "Yes"})
+	builder.Text("namespace", "Default Namespace").
+		Placeholder("default").
+		Value(cfg.Namespace).
+		Done()
 
-	// Set actual values for editing (placeholders are just hints, values are the actual data)
-	values := map[string]any{
-		"address":       cfg.Address,
-		"namespace":     cfg.Namespace,
-		"tlsCert":       cfg.TLS.Cert,
-		"tlsKey":        cfg.TLS.Key,
-		"tlsCA":         cfg.TLS.CA,
-		"tlsServerName": cfg.TLS.ServerName,
-		"tlsSkipVerify": map[bool]string{true: "Yes", false: "No"}[cfg.TLS.SkipVerify],
-	}
-	if f.isEdit {
-		values["name"] = name
-	}
-	_ = f.form.SetValues(values)
+	// TLS settings (optional)
+	builder.Text("tlsCert", "TLS Cert Path (optional)").
+		Value(cfg.TLS.Cert).
+		Done()
 
-	f.form.SetOnSubmit(func(values map[string]any) {
+	builder.Text("tlsKey", "TLS Key Path (optional)").
+		Value(cfg.TLS.Key).
+		Done()
+
+	builder.Text("tlsCA", "TLS CA Path (optional)").
+		Value(cfg.TLS.CA).
+		Done()
+
+	builder.Text("tlsServerName", "TLS Server Name (optional)").
+		Value(cfg.TLS.ServerName).
+		Done()
+
+	// Skip TLS verify
+	skipVerifyDefault := "No"
+	if cfg.TLS.SkipVerify {
+		skipVerifyDefault = "Yes"
+	}
+	builder.Select("tlsSkipVerify", "Skip TLS Verify", []string{"No", "Yes"}).
+		Default(skipVerifyDefault).
+		Done()
+
+	// Set callbacks
+	builder.OnSubmit(func(values map[string]any) {
 		saveName := name
-		if !f.isEdit {
+		if !isEdit {
 			saveName = values["name"].(string)
 		}
 		if saveName == "" {
@@ -568,12 +516,27 @@ func (f *ProfileForm) SetProfile(name string, cfg config.ConnectionConfig) {
 			f.onSave(saveName, newCfg)
 		}
 	})
-	f.form.SetOnCancel(func() {
+
+	builder.OnCancel(func() {
 		if f.onCancel != nil {
 			f.onCancel()
 		}
 	})
 
+	return builder.Build()
+}
+
+func (f *ProfileForm) SetProfile(name string, cfg config.ConnectionConfig) {
+	f.isEdit = name != ""
+	f.editName = name
+
+	if f.isEdit {
+		f.Modal.SetTitle(fmt.Sprintf("%s Edit Profile: %s", theme.IconInfo, name))
+	} else {
+		f.Modal.SetTitle(fmt.Sprintf("%s New Profile", theme.IconInfo))
+	}
+
+	f.form = f.buildForm(name, cfg, f.isEdit)
 	f.Modal.SetContent(f.form)
 }
 

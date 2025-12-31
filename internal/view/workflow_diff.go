@@ -7,6 +7,7 @@ import (
 
 	"github.com/atterpac/jig/components"
 	"github.com/atterpac/jig/theme"
+	"github.com/atterpac/jig/validators"
 	"github.com/galaxy-io/tempo/internal/temporal"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -237,41 +238,30 @@ func (wd *WorkflowDiff) promptWorkflowInput(isLeft bool) {
 		Backdrop: true,
 	})
 
-	form := components.NewForm()
-	form.AddTextField("workflowID", "Workflow ID", "")
-	form.AddTextField("runID", "Run ID (optional)", "")
-
-	form.SetOnSubmit(func(values map[string]any) {
-		workflowID := values["workflowID"].(string)
-		if workflowID == "" {
-			return
-		}
-		runID := values["runID"].(string)
-		wd.closeModal()
-		wd.loadWorkflow(isLeft, workflowID, runID)
-	})
-	form.SetOnCancel(func() {
-		wd.closeModal()
-	})
+	form := components.NewFormBuilder().
+		Text("workflowID", "Workflow ID").
+			Placeholder("Enter workflow ID").
+			Validate(validators.Required()).
+			Done().
+		Text("runID", "Run ID (optional)").
+			Placeholder("Leave empty for latest run").
+			Done().
+		OnSubmit(func(values map[string]any) {
+			workflowID := values["workflowID"].(string)
+			runID := values["runID"].(string)
+			wd.closeModal()
+			wd.loadWorkflow(isLeft, workflowID, runID)
+		}).
+		OnCancel(func() {
+			wd.closeModal()
+		}).
+		Build()
 
 	modal.SetContent(form)
 	modal.SetHints([]components.KeyHint{
 		{Key: "Tab", Description: "Next field"},
 		{Key: "Enter", Description: "Load workflow"},
 		{Key: "Esc", Description: "Cancel"},
-	})
-	modal.SetOnSubmit(func() {
-		values := form.GetValues()
-		workflowID := values["workflowID"].(string)
-		if workflowID == "" {
-			return
-		}
-		runID := values["runID"].(string)
-		wd.closeModal()
-		wd.loadWorkflow(isLeft, workflowID, runID)
-	})
-	modal.SetOnCancel(func() {
-		wd.closeModal()
 	})
 
 	wd.app.JigApp().Pages().Push(modal)

@@ -7,6 +7,7 @@ import (
 
 	"github.com/atterpac/jig/components"
 	"github.com/atterpac/jig/theme"
+	"github.com/atterpac/jig/validators"
 	"github.com/galaxy-io/tempo/internal/temporal"
 	"github.com/rivo/tview"
 )
@@ -86,15 +87,19 @@ func (wl *WorkflowList) showBatchCancelConfirm() {
 		}
 	}
 
-	modal := components.NewModal(components.ModalConfig{
-		Title:    fmt.Sprintf("%s Cancel %d Workflow(s)", theme.IconWarning, len(selected)),
-		Width:    60,
-		Height:   14,
-		Backdrop: true,
-	})
-
-	form := components.NewForm()
-	form.AddTextField("reason", "Reason (optional)", "Batch cancelled via tempo")
+	form := components.NewFormBuilder().
+		Text("reason", "Reason (optional)").
+			Value("Batch cancelled via tempo").
+			Done().
+		OnSubmit(func(values map[string]any) {
+			reason := values["reason"].(string)
+			wl.closeModal()
+			wl.executeBatchCancel(selected, reason)
+		}).
+		OnCancel(func() {
+			wl.closeModal()
+		}).
+		Build()
 
 	infoText := tview.NewTextView().SetDynamicColors(true)
 	infoText.SetBackgroundColor(theme.Bg())
@@ -110,19 +115,16 @@ func (wl *WorkflowList) showBatchCancelConfirm() {
 		AddItem(form, 0, 1, true)
 	content.SetBackgroundColor(theme.Bg())
 
+	modal := components.NewModal(components.ModalConfig{
+		Title:    fmt.Sprintf("%s Cancel %d Workflow(s)", theme.IconWarning, len(selected)),
+		Width:    60,
+		Height:   14,
+		Backdrop: true,
+	})
 	modal.SetContent(content)
 	modal.SetHints([]components.KeyHint{
-		{Key: "Enter", Description: "Confirm"},
+		{Key: "Ctrl+S", Description: "Confirm"},
 		{Key: "Esc", Description: "Cancel"},
-	})
-	modal.SetOnSubmit(func() {
-		values := form.GetValues()
-		reason := values["reason"].(string)
-		wl.closeModal()
-		wl.executeBatchCancel(selected, reason)
-	})
-	modal.SetOnCancel(func() {
-		wl.closeModal()
 	})
 
 	wl.app.JigApp().Pages().Push(modal)
@@ -185,15 +187,20 @@ func (wl *WorkflowList) showBatchTerminateConfirm() {
 		}
 	}
 
-	modal := components.NewModal(components.ModalConfig{
-		Title:    fmt.Sprintf("%s Terminate %d Workflow(s)", theme.IconError, len(selected)),
-		Width:    65,
-		Height:   16,
-		Backdrop: true,
-	})
-
-	form := components.NewForm()
-	form.AddTextField("reason", "Reason (required)", "")
+	form := components.NewFormBuilder().
+		Text("reason", "Reason (required)").
+			Placeholder("Enter reason for termination").
+			Validate(validators.Required()).
+			Done().
+		OnSubmit(func(values map[string]any) {
+			reason := values["reason"].(string)
+			wl.closeModal()
+			wl.executeBatchTerminate(selected, reason)
+		}).
+		OnCancel(func() {
+			wl.closeModal()
+		}).
+		Build()
 
 	warningText := tview.NewTextView().SetDynamicColors(true)
 	warningText.SetBackgroundColor(theme.Bg())
@@ -212,22 +219,16 @@ func (wl *WorkflowList) showBatchTerminateConfirm() {
 		AddItem(form, 0, 1, true)
 	content.SetBackgroundColor(theme.Bg())
 
+	modal := components.NewModal(components.ModalConfig{
+		Title:    fmt.Sprintf("%s Terminate %d Workflow(s)", theme.IconError, len(selected)),
+		Width:    65,
+		Height:   16,
+		Backdrop: true,
+	})
 	modal.SetContent(content)
 	modal.SetHints([]components.KeyHint{
-		{Key: "Enter", Description: "Terminate"},
+		{Key: "Ctrl+S", Description: "Terminate"},
 		{Key: "Esc", Description: "Cancel"},
-	})
-	modal.SetOnSubmit(func() {
-		values := form.GetValues()
-		reason := values["reason"].(string)
-		if reason == "" {
-			return // Require reason for terminate
-		}
-		wl.closeModal()
-		wl.executeBatchTerminate(selected, reason)
-	})
-	modal.SetOnCancel(func() {
-		wl.closeModal()
 	})
 
 	wl.app.JigApp().Pages().Push(modal)

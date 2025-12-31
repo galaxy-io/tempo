@@ -9,6 +9,7 @@ import (
 
 	"github.com/atterpac/jig/components"
 	"github.com/atterpac/jig/theme"
+	"github.com/atterpac/jig/validators"
 	"github.com/galaxy-io/tempo/internal/temporal"
 	"github.com/gdamore/tcell/v2"
 	"github.com/rivo/tview"
@@ -631,37 +632,30 @@ func truncateStr(s string, maxLen int) string {
 // Mutation methods
 
 func (wd *WorkflowDetail) showCancelConfirm() {
+	form := components.NewFormBuilder().
+		Text("reason", "Reason (optional)").
+			Value("Cancelled via tempo").
+			Done().
+		OnSubmit(func(values map[string]any) {
+			reason := values["reason"].(string)
+			wd.closeModal()
+			wd.executeCancelWorkflow(reason)
+		}).
+		OnCancel(func() {
+			wd.closeModal()
+		}).
+		Build()
+
 	modal := components.NewModal(components.ModalConfig{
 		Title:    fmt.Sprintf("%s Cancel Workflow", theme.IconWarning),
 		Width:    60,
 		Height:   12,
 		Backdrop: true,
 	})
-
-	form := components.NewForm()
-	form.AddTextField("reason", "Reason (optional)", "Cancelled via tempo")
-	form.SetOnSubmit(func(values map[string]any) {
-		reason := values["reason"].(string)
-		wd.closeModal()
-		wd.executeCancelWorkflow(reason)
-	})
-	form.SetOnCancel(func() {
-		wd.closeModal()
-	})
-
 	modal.SetContent(form)
 	modal.SetHints([]components.KeyHint{
-		{Key: "Enter", Description: "Confirm"},
+		{Key: "Ctrl+S", Description: "Confirm"},
 		{Key: "Esc", Description: "Cancel"},
-	})
-	modal.SetOnSubmit(func() {
-		values := form.GetValues()
-		reason := values["reason"].(string)
-		wd.closeModal()
-		wd.executeCancelWorkflow(reason)
-	})
-	modal.SetOnCancel(func() {
-		wd.closeModal()
 	})
 
 	wd.app.JigApp().Pages().Push(modal)
@@ -697,12 +691,20 @@ func (wd *WorkflowDetail) executeCancelWorkflow(reason string) {
 }
 
 func (wd *WorkflowDetail) showTerminateConfirm() {
-	modal := components.NewModal(components.ModalConfig{
-		Title:    fmt.Sprintf("%s Terminate Workflow", theme.IconError),
-		Width:    65,
-		Height:   14,
-		Backdrop: true,
-	})
+	form := components.NewFormBuilder().
+		Text("reason", "Reason (required)").
+			Value("Terminated via tempo").
+			Validate(validators.Required()).
+			Done().
+		OnSubmit(func(values map[string]any) {
+			reason := values["reason"].(string)
+			wd.closeModal()
+			wd.executeTerminateWorkflow(reason)
+		}).
+		OnCancel(func() {
+			wd.closeModal()
+		}).
+		Build()
 
 	// Create content with warning message
 	contentFlex := tview.NewFlex().SetDirection(tview.FlexRow)
@@ -714,39 +716,19 @@ func (wd *WorkflowDetail) showTerminateConfirm() {
 	warningText.SetBackgroundColor(theme.Bg())
 	warningText.SetText(fmt.Sprintf("[%s]Warning: Termination is immediate and irreversible.\nNo cleanup code will run in the workflow.[-]", theme.TagError()))
 
-	form := components.NewForm()
-	form.AddTextField("reason", "Reason (required)", "Terminated via tempo")
-	form.SetOnSubmit(func(values map[string]any) {
-		reason := values["reason"].(string)
-		if reason == "" {
-			return // Require a reason
-		}
-		wd.closeModal()
-		wd.executeTerminateWorkflow(reason)
-	})
-	form.SetOnCancel(func() {
-		wd.closeModal()
-	})
-
 	contentFlex.AddItem(warningText, 3, 0, false)
 	contentFlex.AddItem(form, 0, 1, true)
 
+	modal := components.NewModal(components.ModalConfig{
+		Title:    fmt.Sprintf("%s Terminate Workflow", theme.IconError),
+		Width:    65,
+		Height:   14,
+		Backdrop: true,
+	})
 	modal.SetContent(contentFlex)
 	modal.SetHints([]components.KeyHint{
-		{Key: "Enter", Description: "Terminate"},
+		{Key: "Ctrl+S", Description: "Terminate"},
 		{Key: "Esc", Description: "Cancel"},
-	})
-	modal.SetOnSubmit(func() {
-		values := form.GetValues()
-		reason := values["reason"].(string)
-		if reason == "" {
-			return
-		}
-		wd.closeModal()
-		wd.executeTerminateWorkflow(reason)
-	})
-	modal.SetOnCancel(func() {
-		wd.closeModal()
 	})
 
 	wd.app.JigApp().Pages().Push(modal)
@@ -782,12 +764,29 @@ func (wd *WorkflowDetail) executeTerminateWorkflow(reason string) {
 }
 
 func (wd *WorkflowDetail) showDeleteConfirm() {
-	modal := components.NewModal(components.ModalConfig{
-		Title:    fmt.Sprintf("%s Delete Workflow", theme.IconError),
-		Width:    70,
-		Height:   16,
-		Backdrop: true,
-	})
+	workflowID := wd.workflowID
+	form := components.NewFormBuilder().
+		Text("confirm", "Type workflow ID to confirm").
+			Placeholder(workflowID).
+			Validate(validators.Custom(func(value any) error {
+				if s, ok := value.(string); ok && s != workflowID {
+					return fmt.Errorf("must match workflow ID")
+				}
+				return nil
+			})).
+			Done().
+		OnSubmit(func(values map[string]any) {
+			confirm := values["confirm"].(string)
+			if confirm != workflowID {
+				return
+			}
+			wd.closeModal()
+			wd.executeDeleteWorkflow()
+		}).
+		OnCancel(func() {
+			wd.closeModal()
+		}).
+		Build()
 
 	// Create content with warning message
 	contentFlex := tview.NewFlex().SetDirection(tview.FlexRow)
@@ -802,41 +801,21 @@ This action cannot be undone.[-]
 
 [%s]Workflow ID:[-] [%s]%s[-]`,
 		theme.TagError(),
-		theme.TagFgDim(), theme.TagFg(), wd.workflowID))
-
-	form := components.NewForm()
-	form.AddTextField("confirm", "Type workflow ID to confirm", "")
-	form.SetOnSubmit(func(values map[string]any) {
-		confirm := values["confirm"].(string)
-		if confirm != wd.workflowID {
-			return // Must match workflow ID
-		}
-		wd.closeModal()
-		wd.executeDeleteWorkflow()
-	})
-	form.SetOnCancel(func() {
-		wd.closeModal()
-	})
+		theme.TagFgDim(), theme.TagFg(), workflowID))
 
 	contentFlex.AddItem(warningText, 5, 0, false)
 	contentFlex.AddItem(form, 0, 1, true)
 
+	modal := components.NewModal(components.ModalConfig{
+		Title:    fmt.Sprintf("%s Delete Workflow", theme.IconError),
+		Width:    70,
+		Height:   16,
+		Backdrop: true,
+	})
 	modal.SetContent(contentFlex)
 	modal.SetHints([]components.KeyHint{
-		{Key: "Enter", Description: "Delete"},
+		{Key: "Ctrl+S", Description: "Delete"},
 		{Key: "Esc", Description: "Cancel"},
-	})
-	modal.SetOnSubmit(func() {
-		values := form.GetValues()
-		confirm := values["confirm"].(string)
-		if confirm != wd.workflowID {
-			return
-		}
-		wd.closeModal()
-		wd.executeDeleteWorkflow()
-	})
-	modal.SetOnCancel(func() {
-		wd.closeModal()
 	})
 
 	wd.app.JigApp().Pages().Push(modal)
@@ -872,47 +851,36 @@ func (wd *WorkflowDetail) executeDeleteWorkflow() {
 }
 
 func (wd *WorkflowDetail) showSignalInput() {
+	form := components.NewFormBuilder().
+		Text("signalName", "Signal Name").
+			Placeholder("Enter signal name").
+			Validate(validators.Required()).
+			Done().
+		Text("input", "Input (JSON, optional)").
+			Placeholder("{}").
+			Done().
+		OnSubmit(func(values map[string]any) {
+			signalName := values["signalName"].(string)
+			input := values["input"].(string)
+			wd.closeModal()
+			wd.executeSignalWorkflow(signalName, input)
+		}).
+		OnCancel(func() {
+			wd.closeModal()
+		}).
+		Build()
+
 	modal := components.NewModal(components.ModalConfig{
 		Title:    fmt.Sprintf("%s Signal Workflow", theme.IconSignal),
 		Width:    70,
 		Height:   16,
 		Backdrop: true,
 	})
-
-	form := components.NewForm()
-	form.AddTextField("signalName", "Signal Name", "")
-	form.AddTextField("input", "Input (JSON, optional)", "")
-	form.SetOnSubmit(func(values map[string]any) {
-		signalName := values["signalName"].(string)
-		if signalName == "" {
-			return // Require signal name
-		}
-		input := values["input"].(string)
-		wd.closeModal()
-		wd.executeSignalWorkflow(signalName, input)
-	})
-	form.SetOnCancel(func() {
-		wd.closeModal()
-	})
-
 	modal.SetContent(form)
 	modal.SetHints([]components.KeyHint{
 		{Key: "Tab", Description: "Next field"},
-		{Key: "Enter", Description: "Send signal"},
+		{Key: "Ctrl+S", Description: "Send signal"},
 		{Key: "Esc", Description: "Cancel"},
-	})
-	modal.SetOnSubmit(func() {
-		values := form.GetValues()
-		signalName := values["signalName"].(string)
-		if signalName == "" {
-			return
-		}
-		input := values["input"].(string)
-		wd.closeModal()
-		wd.executeSignalWorkflow(signalName, input)
-	})
-	modal.SetOnCancel(func() {
-		wd.closeModal()
 	})
 
 	wd.app.JigApp().Pages().Push(modal)
@@ -1000,12 +968,18 @@ func (wd *WorkflowDetail) showResetSelector() {
 }
 
 func (wd *WorkflowDetail) showQuickResetModal(failurePoint temporal.ResetPoint, allPoints []temporal.ResetPoint) {
-	modal := components.NewModal(components.ModalConfig{
-		Title:    fmt.Sprintf("%s Quick Reset", theme.IconWarning),
-		Width:    70,
-		Height:   14,
-		Backdrop: true,
-	})
+	form := components.NewFormBuilder().
+		Text("reason", "Reason").
+			Value("Reset via tempo").
+			Done().
+		OnSubmit(func(values map[string]any) {
+			wd.closeModal()
+			wd.executeResetWorkflow(failurePoint.EventID, values["reason"].(string))
+		}).
+		OnCancel(func() {
+			wd.closeModal()
+		}).
+		Build()
 
 	contentFlex := tview.NewFlex().SetDirection(tview.FlexRow)
 	contentFlex.SetBackgroundColor(theme.Bg())
@@ -1024,27 +998,20 @@ func (wd *WorkflowDetail) showQuickResetModal(failurePoint temporal.ResetPoint, 
 		theme.TagFgDim(), theme.TagFg(), failurePoint.EventType,
 		theme.TagFgDim(), theme.TagFg(), failurePoint.Description))
 
-	form := components.NewForm()
-	form.AddTextField("reason", "Reason", "Reset via tempo")
-	form.SetOnSubmit(func(values map[string]any) {
-		wd.closeModal()
-		wd.executeResetWorkflow(failurePoint.EventID, values["reason"].(string))
-	})
-	form.SetOnCancel(func() {
-		wd.closeModal()
-	})
-
 	contentFlex.AddItem(infoText, 6, 0, false)
 	contentFlex.AddItem(form, 0, 1, true)
 
+	modal := components.NewModal(components.ModalConfig{
+		Title:    fmt.Sprintf("%s Quick Reset", theme.IconWarning),
+		Width:    70,
+		Height:   14,
+		Backdrop: true,
+	})
 	modal.SetContent(contentFlex)
 	modal.SetHints([]components.KeyHint{
-		{Key: "Enter", Description: "Reset"},
+		{Key: "Ctrl+S", Description: "Reset"},
 		{Key: "p", Description: "Pick another"},
 		{Key: "Esc", Description: "Cancel"},
-	})
-	modal.SetOnCancel(func() {
-		wd.closeModal()
 	})
 
 	wd.app.JigApp().Pages().Push(modal)
@@ -1110,12 +1077,19 @@ func (wd *WorkflowDetail) showResetPicker(resetPoints []temporal.ResetPoint) {
 }
 
 func (wd *WorkflowDetail) showResetConfirm(resetPoint temporal.ResetPoint) {
-	modal := components.NewModal(components.ModalConfig{
-		Title:    fmt.Sprintf("%s Confirm Reset", theme.IconWarning),
-		Width:    70,
-		Height:   16,
-		Backdrop: true,
-	})
+	eventID := resetPoint.EventID
+	form := components.NewFormBuilder().
+		Text("reason", "Reason").
+			Value("Reset via tempo").
+			Done().
+		OnSubmit(func(values map[string]any) {
+			wd.closeModal()
+			wd.executeResetWorkflow(eventID, values["reason"].(string))
+		}).
+		OnCancel(func() {
+			wd.closeModal()
+		}).
+		Build()
 
 	contentFlex := tview.NewFlex().SetDirection(tview.FlexRow)
 	contentFlex.SetBackgroundColor(theme.Bg())
@@ -1136,31 +1110,19 @@ func (wd *WorkflowDetail) showResetConfirm(resetPoint temporal.ResetPoint) {
 		theme.TagFgDim(), theme.TagFg(), resetPoint.Timestamp.Format("2006-01-02 15:04:05"),
 		theme.TagFgDim(), theme.TagFg(), resetPoint.Description))
 
-	form := components.NewForm()
-	form.AddTextField("reason", "Reason", "Reset via tempo")
-	form.SetOnSubmit(func(values map[string]any) {
-		wd.closeModal()
-		wd.executeResetWorkflow(resetPoint.EventID, values["reason"].(string))
-	})
-	form.SetOnCancel(func() {
-		wd.closeModal()
-	})
-
 	contentFlex.AddItem(infoText, 7, 0, false)
 	contentFlex.AddItem(form, 0, 1, true)
 
+	modal := components.NewModal(components.ModalConfig{
+		Title:    fmt.Sprintf("%s Confirm Reset", theme.IconWarning),
+		Width:    70,
+		Height:   16,
+		Backdrop: true,
+	})
 	modal.SetContent(contentFlex)
 	modal.SetHints([]components.KeyHint{
-		{Key: "Enter", Description: "Reset"},
+		{Key: "Ctrl+S", Description: "Reset"},
 		{Key: "Esc", Description: "Cancel"},
-	})
-	modal.SetOnSubmit(func() {
-		values := form.GetValues()
-		wd.closeModal()
-		wd.executeResetWorkflow(resetPoint.EventID, values["reason"].(string))
-	})
-	modal.SetOnCancel(func() {
-		wd.closeModal()
 	})
 
 	wd.app.JigApp().Pages().Push(modal)
@@ -1231,55 +1193,43 @@ func (wd *WorkflowDetail) closeModal() {
 }
 
 func (wd *WorkflowDetail) showQueryInput() {
+	form := components.NewFormBuilder().
+		Select("queryType", "Query Type", []string{"__stack_trace", "custom"}).
+			Done().
+		Text("customQuery", "Custom Query Name").
+			Placeholder("Enter custom query name").
+			Done().
+		Text("args", "Arguments (JSON, optional)").
+			Placeholder("{}").
+			Done().
+		OnSubmit(func(values map[string]any) {
+			queryType := values["queryType"].(string)
+			if queryType == "custom" {
+				queryType = values["customQuery"].(string)
+			}
+			if queryType == "" {
+				return
+			}
+			args := values["args"].(string)
+			wd.closeModal()
+			wd.executeQuery(queryType, args)
+		}).
+		OnCancel(func() {
+			wd.closeModal()
+		}).
+		Build()
+
 	modal := components.NewModal(components.ModalConfig{
 		Title:    fmt.Sprintf("%s Query Workflow", theme.IconInfo),
 		Width:    70,
 		Height:   18,
 		Backdrop: true,
 	})
-
-	form := components.NewForm()
-	form.AddSelect("queryType", "Query Type", []string{"__stack_trace", "custom"})
-	form.AddTextField("customQuery", "Custom Query Name", "")
-	form.AddTextField("args", "Arguments (JSON, optional)", "")
-
-	form.SetOnSubmit(func(values map[string]any) {
-		queryType := values["queryType"].(string)
-		if queryType == "custom" {
-			queryType = values["customQuery"].(string)
-		}
-		if queryType == "" {
-			return
-		}
-		args := values["args"].(string)
-		wd.closeModal()
-		wd.executeQuery(queryType, args)
-	})
-	form.SetOnCancel(func() {
-		wd.closeModal()
-	})
-
 	modal.SetContent(form)
 	modal.SetHints([]components.KeyHint{
 		{Key: "Tab", Description: "Next field"},
-		{Key: "Enter", Description: "Execute query"},
+		{Key: "Ctrl+S", Description: "Execute query"},
 		{Key: "Esc", Description: "Cancel"},
-	})
-	modal.SetOnSubmit(func() {
-		values := form.GetValues()
-		queryType := values["queryType"].(string)
-		if queryType == "custom" {
-			queryType = values["customQuery"].(string)
-		}
-		if queryType == "" {
-			return
-		}
-		args := values["args"].(string)
-		wd.closeModal()
-		wd.executeQuery(queryType, args)
-	})
-	modal.SetOnCancel(func() {
-		wd.closeModal()
 	})
 
 	wd.app.JigApp().Pages().Push(modal)
