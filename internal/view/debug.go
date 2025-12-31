@@ -96,6 +96,10 @@ func NewDebugScreen(data DebugData) *DebugScreen {
 		data:    data,
 	}
 	ds.setup()
+
+	// Register for automatic theme refresh
+	theme.RegisterRefreshable(ds)
+
 	return ds
 }
 
@@ -469,9 +473,8 @@ func (da *DebugApp) showThemeSelector() {
 		list.AddItem(prefix+name, "", 0, func() {
 			newTheme := themes.Get(name)
 			if newTheme != nil {
-				theme.SetProvider(newTheme)
+				theme.SetProvider(newTheme) // Auto-refreshes all registered views
 				da.screen.data.ThemeName = name
-				da.screen.RefreshTheme()
 			}
 			// Save theme to config
 			da.config.Theme = name
@@ -497,9 +500,8 @@ func (da *DebugApp) showThemeSelector() {
 		list.AddItem(prefix+name, "", 0, func() {
 			newTheme := themes.Get(name)
 			if newTheme != nil {
-				theme.SetProvider(newTheme)
+				theme.SetProvider(newTheme) // Auto-refreshes all registered views
 				da.screen.data.ThemeName = name
-				da.screen.RefreshTheme()
 			}
 			// Save theme to config
 			da.config.Theme = name
@@ -523,9 +525,8 @@ func (da *DebugApp) showThemeSelector() {
 	list.SetChangedFunc(func(index int, mainText string, secondaryText string, shortcut rune) {
 		if themeName, ok := listToTheme[index]; ok {
 			if t := themes.Get(themeName); t != nil {
-				theme.SetProvider(t)
+				theme.SetProvider(t) // Auto-refreshes all registered views
 				da.screen.data.ThemeName = themeName
-				da.screen.RefreshTheme()
 			}
 		}
 	})
@@ -542,9 +543,8 @@ func (da *DebugApp) showThemeSelector() {
 		if event.Key() == tcell.KeyEscape {
 			// Restore original theme
 			if t := themes.Get(currentTheme); t != nil {
-				theme.SetProvider(t)
+				theme.SetProvider(t) // Auto-refreshes all registered views
 				da.screen.data.ThemeName = currentTheme
-				da.screen.RefreshTheme()
 			}
 			da.app.Pages().DismissModal()
 			return nil
@@ -587,9 +587,8 @@ func (da *DebugApp) showThemeSelector() {
 	modal.SetOnCancel(func() {
 		// Restore original theme
 		if t := themes.Get(currentTheme); t != nil {
-			theme.SetProvider(t)
+			theme.SetProvider(t) // Auto-refreshes all registered views
 			da.screen.data.ThemeName = currentTheme
-			da.screen.RefreshTheme()
 		}
 		da.app.Pages().DismissModal()
 	})

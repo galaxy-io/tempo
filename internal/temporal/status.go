@@ -5,68 +5,109 @@ import (
 	"go.temporal.io/api/enums/v1"
 )
 
-// WorkflowStatus constants match the UI display strings.
-const (
-	StatusRunning    = "Running"
-	StatusCompleted  = "Completed"
-	StatusFailed     = "Failed"
-	StatusCanceled   = "Canceled"
-	StatusTerminated = "Terminated"
-	StatusTimedOut   = "TimedOut"
-	StatusUnknown    = "Unknown"
+// Typed workflow status handles - use these for compile-time safe color/icon access.
+var (
+	StatusRunning    = theme.DefineStatus("Running", theme.Info, theme.IconRunning)
+	StatusCompleted  = theme.DefineStatus("Completed", theme.Success, theme.IconCompleted)
+	StatusFailed     = theme.DefineStatus("Failed", theme.Error, theme.IconFailed)
+	StatusCanceled   = theme.DefineStatus("Canceled", theme.Warning, theme.IconCanceled)
+	StatusTerminated = theme.DefineStatus("Terminated", theme.Error, theme.IconStop)
+	StatusTimedOut   = theme.DefineStatus("TimedOut", theme.Warning, theme.IconTimedOut)
+	StatusUnknown    = theme.DefineStatus("Unknown", theme.FgDim, theme.IconPending)
 )
 
-// MapWorkflowStatus converts a Temporal SDK workflow execution status to a UI-friendly string.
+// MapWorkflowStatus converts a Temporal SDK workflow execution status to a display string.
 func MapWorkflowStatus(status enums.WorkflowExecutionStatus) string {
 	switch status {
 	case enums.WORKFLOW_EXECUTION_STATUS_RUNNING:
-		return StatusRunning
+		return "Running"
 	case enums.WORKFLOW_EXECUTION_STATUS_COMPLETED:
-		return StatusCompleted
+		return "Completed"
 	case enums.WORKFLOW_EXECUTION_STATUS_FAILED:
-		return StatusFailed
+		return "Failed"
 	case enums.WORKFLOW_EXECUTION_STATUS_CANCELED:
-		return StatusCanceled
+		return "Canceled"
 	case enums.WORKFLOW_EXECUTION_STATUS_TERMINATED:
-		return StatusTerminated
+		return "Terminated"
 	case enums.WORKFLOW_EXECUTION_STATUS_TIMED_OUT:
-		return StatusTimedOut
+		return "TimedOut"
 	case enums.WORKFLOW_EXECUTION_STATUS_CONTINUED_AS_NEW:
-		return StatusCompleted // Treat ContinuedAsNew as completed for display
+		return "Completed" // Treat ContinuedAsNew as completed for display
+	default:
+		return "Unknown"
+	}
+}
+
+// GetWorkflowStatus returns the typed Status for a workflow status string.
+func GetWorkflowStatus(status string) *theme.Status {
+	switch status {
+	case "Running":
+		return StatusRunning
+	case "Completed":
+		return StatusCompleted
+	case "Failed":
+		return StatusFailed
+	case "Canceled":
+		return StatusCanceled
+	case "Terminated":
+		return StatusTerminated
+	case "TimedOut":
+		return StatusTimedOut
 	default:
 		return StatusUnknown
 	}
 }
 
-// NamespaceState constants.
-const (
-	NamespaceStateActive     = "Active"
-	NamespaceStateDeprecated = "Deprecated"
-	NamespaceStateDeleted    = "Deleted"
-	NamespaceStateUnknown    = "Unknown"
+// Typed namespace state handles.
+var (
+	NamespaceStateActive     = theme.DefineStatus("Active", theme.Success, theme.IconCheck)
+	NamespaceStateDeprecated = theme.DefineStatus("Deprecated", theme.Warning, theme.IconWarning)
+	NamespaceStateDeleted    = theme.DefineStatus("Deleted", theme.Error, theme.IconDelete)
+	NamespaceStateUnknown    = theme.DefineStatus("Unknown", theme.FgDim, theme.IconPending)
 )
 
-// MapNamespaceState converts a Temporal SDK namespace state to a UI-friendly string.
+// MapNamespaceState converts a Temporal SDK namespace state to a display string.
 func MapNamespaceState(state enums.NamespaceState) string {
 	switch state {
 	case enums.NAMESPACE_STATE_REGISTERED:
-		return NamespaceStateActive
+		return "Active"
 	case enums.NAMESPACE_STATE_DEPRECATED:
-		return NamespaceStateDeprecated
+		return "Deprecated"
 	case enums.NAMESPACE_STATE_DELETED:
+		return "Deleted"
+	default:
+		return "Unknown"
+	}
+}
+
+// GetNamespaceState returns the typed Status for a namespace state string.
+func GetNamespaceState(state string) *theme.Status {
+	switch state {
+	case "Active":
+		return NamespaceStateActive
+	case "Deprecated":
+		return NamespaceStateDeprecated
+	case "Deleted":
 		return NamespaceStateDeleted
 	default:
 		return NamespaceStateUnknown
 	}
 }
 
-// TaskQueueType constants.
+// Task queue type handles.
+var (
+	TaskQueueTypeWorkflowStatus = theme.DefineStatus("Workflow", theme.Info, theme.IconWorkflow)
+	TaskQueueTypeActivityStatus = theme.DefineStatus("Activity", theme.Info, theme.IconActivity)
+	TaskQueueTypeUnknownStatus  = theme.DefineStatus("Unknown", theme.FgDim, theme.IconPending)
+)
+
+// Task queue type string constants (for data storage).
 const (
 	TaskQueueTypeWorkflow = "Workflow"
 	TaskQueueTypeActivity = "Activity"
 )
 
-// MapTaskQueueType converts a Temporal SDK task queue type to a UI-friendly string.
+// MapTaskQueueType converts a Temporal SDK task queue type to a display string.
 func MapTaskQueueType(tqType enums.TaskQueueType) string {
 	switch tqType {
 	case enums.TASK_QUEUE_TYPE_WORKFLOW:
@@ -78,20 +119,14 @@ func MapTaskQueueType(tqType enums.TaskQueueType) string {
 	}
 }
 
-// RegisterTemporalStatuses registers Temporal-specific statuses with jig's theme system.
-// Uses dynamic colors that update when theme changes.
-func RegisterTemporalStatuses() {
-	// Workflow execution statuses - use dynamic theme colors
-	theme.RegisterStatusDynamic(StatusRunning, theme.Info, theme.IconRunning)
-	theme.RegisterStatusDynamic(StatusCompleted, theme.Success, theme.IconCompleted)
-	theme.RegisterStatusDynamic(StatusFailed, theme.Error, theme.IconFailed)
-	theme.RegisterStatusDynamic(StatusCanceled, theme.Warning, theme.IconCanceled)
-	theme.RegisterStatusDynamic(StatusTerminated, theme.Error, theme.IconStop)
-	theme.RegisterStatusDynamic(StatusTimedOut, theme.Warning, theme.IconTimedOut)
-	theme.RegisterStatusDynamic(StatusUnknown, theme.FgDim, theme.IconPending)
-
-	// Namespace states
-	theme.RegisterStatusDynamic(NamespaceStateActive, theme.Success, theme.IconCheck)
-	theme.RegisterStatusDynamic(NamespaceStateDeprecated, theme.Warning, theme.IconWarning)
-	theme.RegisterStatusDynamic(NamespaceStateDeleted, theme.Error, theme.IconDelete)
+// GetTaskQueueTypeStatus returns the typed Status for a task queue type string.
+func GetTaskQueueTypeStatus(tqType string) *theme.Status {
+	switch tqType {
+	case TaskQueueTypeWorkflow:
+		return TaskQueueTypeWorkflowStatus
+	case TaskQueueTypeActivity:
+		return TaskQueueTypeActivityStatus
+	default:
+		return TaskQueueTypeUnknownStatus
+	}
 }

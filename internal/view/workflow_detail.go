@@ -42,6 +42,10 @@ func NewWorkflowDetail(app *App, workflowID, runID string) *WorkflowDetail {
 		eventTable: components.NewTable(),
 	}
 	wd.setup()
+
+	// Register for automatic theme refresh
+	theme.RegisterRefreshable(wd)
+
 	return wd
 }
 
@@ -206,8 +210,9 @@ func (wd *WorkflowDetail) render() {
 
 	w := wd.workflow
 	now := time.Now()
-	statusColor := theme.StatusColorTag(w.Status)
-	statusIcon := theme.StatusIcon(w.Status)
+	statusHandle := temporal.GetWorkflowStatus(w.Status)
+	statusColor := statusHandle.ColorTag()
+	statusIcon := statusHandle.Icon()
 
 	durationStr := "In progress"
 	if w.EndTime != nil {
@@ -459,8 +464,8 @@ func highlightJSONLineWorkflow(line string) string {
 // highlightValuesWorkflow highlights JSON values (booleans, null).
 func highlightValuesWorkflow(s string) string {
 	result := s
-	result = strings.ReplaceAll(result, "true", fmt.Sprintf("[%s]true[-]", theme.StatusColorTag("Completed")))
-	result = strings.ReplaceAll(result, "false", fmt.Sprintf("[%s]false[-]", theme.StatusColorTag("Failed")))
+	result = strings.ReplaceAll(result, "true", fmt.Sprintf("[%s]true[-]", temporal.StatusCompleted.ColorTag()))
+	result = strings.ReplaceAll(result, "false", fmt.Sprintf("[%s]false[-]", temporal.StatusFailed.ColorTag()))
 	result = strings.ReplaceAll(result, "null", fmt.Sprintf("[%s]null[-]", theme.TagFgDim()))
 	return result
 }
@@ -1378,7 +1383,7 @@ func (wd *WorkflowDetail) showQueryResult(queryType, result string) {
 				copyToClipboard(result)
 				// Show "Copied!" feedback
 				panel.SetTitle(fmt.Sprintf("%s Copied!", theme.IconCompleted))
-				panel.SetTitleColor(theme.StatusColor("Completed"))
+				panel.SetTitleColor(temporal.StatusCompleted.Color())
 				go func() {
 					time.Sleep(1 * time.Second)
 					wd.app.JigApp().QueueUpdateDraw(func() {
@@ -1470,7 +1475,7 @@ func (wd *WorkflowDetail) yankEventData() {
 [%s]%s[-]`,
 		theme.TagAccent(),
 		theme.TagAccent(), eventType,
-		theme.StatusColorTag("Completed"), "Event data copied!"))
+		temporal.StatusCompleted.ColorTag(), "Event data copied!"))
 
 	// Restore detail after a brief delay
 	go func() {
@@ -1598,7 +1603,7 @@ func (wd *WorkflowDetail) showEventDetailModal() {
 					copyToClipboard(prettyPrintJSONDetail(ev.Details))
 					// Show "Copied!" feedback
 					panel.SetTitle(fmt.Sprintf("%s Copied!", theme.IconCompleted))
-					panel.SetTitleColor(theme.StatusColor("Completed"))
+					panel.SetTitleColor(temporal.StatusCompleted.Color())
 					go func() {
 						time.Sleep(1 * time.Second)
 						wd.app.JigApp().QueueUpdateDraw(func() {
@@ -1720,8 +1725,8 @@ func highlightDetailLine(line string) string {
 // highlightDetailValue highlights JSON values.
 func highlightDetailValue(s string) string {
 	result := s
-	result = strings.ReplaceAll(result, "true", fmt.Sprintf("[%s]true[-]", theme.StatusColorTag("Completed")))
-	result = strings.ReplaceAll(result, "false", fmt.Sprintf("[%s]false[-]", theme.StatusColorTag("Failed")))
+	result = strings.ReplaceAll(result, "true", fmt.Sprintf("[%s]true[-]", temporal.StatusCompleted.ColorTag()))
+	result = strings.ReplaceAll(result, "false", fmt.Sprintf("[%s]false[-]", temporal.StatusFailed.ColorTag()))
 	result = strings.ReplaceAll(result, "null", fmt.Sprintf("[%s]null[-]", theme.TagFgDim()))
 	return result
 }
@@ -1904,7 +1909,7 @@ func (wd *WorkflowDetail) showIOModal() {
 					copyToClipboard(content)
 					// Show "Copied!" feedback
 					panel.SetTitle(fmt.Sprintf("%s Copied!", theme.IconCompleted))
-					panel.SetTitleColor(theme.StatusColor("Completed"))
+					panel.SetTitleColor(temporal.StatusCompleted.Color())
 					go func() {
 						time.Sleep(1 * time.Second)
 						wd.app.JigApp().QueueUpdateDraw(func() {

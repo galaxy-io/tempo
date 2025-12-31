@@ -171,7 +171,7 @@ func (etv *EventTreeView) statusIcon(status string) string {
 
 // statusColor returns the color for a node status.
 func (etv *EventTreeView) statusColor(status string) tcell.Color {
-	return theme.StatusColor(status)
+	return temporal.GetWorkflowStatus(status).Color()
 }
 
 // refreshColors updates all node colors after theme change.

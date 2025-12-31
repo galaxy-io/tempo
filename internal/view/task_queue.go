@@ -46,6 +46,10 @@ func NewTaskQueueView(app *App) *TaskQueueView {
 		pollers:     []temporal.Poller{},
 	}
 	tq.setup()
+
+	// Register for automatic theme refresh
+	theme.RegisterRefreshable(tq)
+
 	return tq
 }
 
@@ -198,13 +202,13 @@ func (tq *TaskQueueView) populateQueueTable() {
 
 	for _, q := range tq.queues {
 		backlogIcon := theme.IconCompleted
-		backlogColor := theme.StatusColor("Completed")
+		backlogColor := temporal.StatusCompleted.Color()
 		if q.Backlog > 50 {
 			backlogIcon = theme.IconError
-			backlogColor = theme.StatusColor("Failed")
+			backlogColor = temporal.StatusFailed.Color()
 		} else if q.Backlog > 10 {
 			backlogIcon = theme.IconRunning
-			backlogColor = theme.StatusColor("Running")
+			backlogColor = temporal.StatusRunning.Color()
 		}
 
 		typeIcon := theme.IconWorkflow

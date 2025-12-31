@@ -46,6 +46,10 @@ func NewWorkflowDiff(app *App, namespace string) *WorkflowDiff {
 		focusLeft: true,
 	}
 	wd.setup()
+
+	// Register for automatic theme refresh
+	theme.RegisterRefreshable(wd)
+
 	return wd
 }
 
@@ -347,8 +351,9 @@ func (wd *WorkflowDiff) updateRightInfo() {
 }
 
 func (wd *WorkflowDiff) formatWorkflowInfo(w *temporal.Workflow, eventCount int) string {
-	statusColor := theme.StatusColorTag(w.Status)
-	statusIcon := theme.StatusIcon(w.Status)
+	statusHandle := temporal.GetWorkflowStatus(w.Status)
+	statusColor := statusHandle.ColorTag()
+	statusIcon := statusHandle.Icon()
 
 	duration := "-"
 	if w.EndTime != nil {

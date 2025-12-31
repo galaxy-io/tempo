@@ -38,6 +38,10 @@ func NewNamespaceList(app *App) *NamespaceList {
 		stopRefresh: make(chan struct{}),
 	}
 	nl.setup()
+
+	// Register for automatic theme refresh
+	theme.RegisterRefreshable(nl)
+
 	return nl
 }
 
@@ -105,10 +109,10 @@ func (nl *NamespaceList) RefreshTheme() {
 
 func (nl *NamespaceList) updatePreview(ns temporal.Namespace) {
 	stateIcon := theme.IconConnected
-	stateColor := theme.StatusColorTag("Running")
+	stateStatus := temporal.GetNamespaceState(ns.State)
+	stateColor := stateStatus.ColorTag()
 	if ns.State == "Deprecated" {
 		stateIcon = theme.IconDisconnected
-		stateColor = theme.StatusColorTag("Failed")
 	}
 
 	text := fmt.Sprintf(`[%s::b]Name[-:-:-]
@@ -202,7 +206,8 @@ func (nl *NamespaceList) populateTable() {
 	nl.SetMasterContent(nl.table)
 
 	for _, ns := range nl.namespaces {
-		nl.table.AddStyledRowSimple(ns.State,
+		stateStatus := temporal.GetNamespaceState(ns.State)
+		nl.table.AddRowWithStatus(stateStatus, 1, // status column is index 1
 			theme.IconDatabase+" "+ns.Name,
 			ns.State,
 			ns.RetentionPeriod,

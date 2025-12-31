@@ -39,6 +39,10 @@ func NewNamespaceDetail(app *App, namespace string) *NamespaceDetail {
 		namespace: namespace,
 	}
 	nd.setup()
+
+	// Register for automatic theme refresh
+	theme.RegisterRefreshable(nd)
+
 	return nd
 }
 
@@ -230,11 +234,11 @@ func (nd *NamespaceDetail) valueOrNA(s string) string {
 func (nd *NamespaceDetail) stateColorTag(state string) string {
 	switch state {
 	case "Active":
-		return theme.StatusColorTag("Running")
+		return temporal.NamespaceStateActive.ColorTag()
 	case "Deprecated":
-		return theme.StatusColorTag("Failed")
+		return temporal.NamespaceStateDeprecated.ColorTag()
 	case "Deleted":
-		return theme.TagFgDim()
+		return temporal.NamespaceStateDeleted.ColorTag()
 	default:
 		return theme.TagFg()
 	}

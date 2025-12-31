@@ -77,9 +77,6 @@ func main() {
 	}
 	theme.SetProvider(selectedTheme)
 
-	// Register Temporal-specific statuses with jig's theme system
-	temporal.RegisterTemporalStatuses()
-
 	// Determine which profile to use
 	activeProfileName := cfg.ActiveProfile
 	if *profileName != "" {

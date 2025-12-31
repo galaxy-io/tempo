@@ -596,7 +596,7 @@ func (tv *TimelineView) barStyle(status string) (rune, tcell.Color) {
 
 // statusColor returns the color for a status.
 func (tv *TimelineView) statusColor(status string) tcell.Color {
-	return theme.StatusColor(status)
+	return temporal.GetWorkflowStatus(status).Color()
 }
 
 // InputHandler handles keyboard input.

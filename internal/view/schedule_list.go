@@ -33,6 +33,10 @@ func NewScheduleList(app *App, namespace string) *ScheduleList {
 		schedules: []temporal.Schedule{},
 	}
 	sl.setup()
+
+	// Register for automatic theme refresh
+	theme.RegisterRefreshable(sl)
+
 	return sl
 }
 
@@ -85,10 +89,10 @@ func (sl *ScheduleList) RefreshTheme() {
 
 func (sl *ScheduleList) updatePreview(s temporal.Schedule) {
 	pauseStatus := "Active"
-	pauseColor := theme.StatusColorTag("Completed")
+	pauseColor := temporal.StatusCompleted.ColorTag()
 	if s.Paused {
 		pauseStatus = "Paused"
-		pauseColor = theme.StatusColorTag("Canceled")
+		pauseColor = temporal.StatusCanceled.ColorTag()
 	}
 
 	nextRun := "-"
@@ -218,10 +222,10 @@ func (sl *ScheduleList) populateTable() {
 
 	for _, s := range sl.schedules {
 		status := "Active"
-		statusColor := theme.StatusColor("Completed")
+		statusColor := temporal.StatusCompleted.Color()
 		if s.Paused {
 			status = "Paused"
-			statusColor = theme.StatusColor("Canceled")
+			statusColor = temporal.StatusCanceled.Color()
 		}
 
 		nextRun := "-"

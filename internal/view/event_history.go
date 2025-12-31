@@ -65,6 +65,10 @@ func NewEventHistory(app *App, workflowID, runID string) *EventHistory {
 		sidePanel:    tview.NewTextView(),
 	}
 	eh.setup()
+
+	// Register for automatic theme refresh
+	theme.RegisterRefreshable(eh)
+
 	return eh
 }
 
@@ -415,8 +419,9 @@ func (eh *EventHistory) updateSidePanelFromTree(node *temporal.EventTreeNode) {
 		return
 	}
 
-	statusTag := theme.StatusColorTag(node.Status)
-	icon := theme.StatusIcon(node.Status)
+	status := temporal.GetWorkflowStatus(node.Status)
+	statusTag := status.ColorTag()
+	icon := status.Icon()
 
 	var durationStr string
 	if node.Duration > 0 {
@@ -649,11 +654,11 @@ func eventIcon(eventType string) string {
 func eventColor(eventType string) tcell.Color {
 	switch {
 	case contains(eventType, "Started"):
-		return theme.StatusColor("Running")
+		return temporal.StatusRunning.Color()
 	case contains(eventType, "Completed"):
-		return theme.StatusColor("Completed")
+		return temporal.StatusCompleted.Color()
 	case contains(eventType, "Failed"):
-		return theme.StatusColor("Failed")
+		return temporal.StatusFailed.Color()
 	case contains(eventType, "Scheduled"):
 		return theme.FgDim()
 	default:
@@ -665,11 +670,11 @@ func eventColor(eventType string) tcell.Color {
 func eventColorTag(eventType string) string {
 	switch {
 	case contains(eventType, "Started"):
-		return theme.StatusColorTag("Running")
+		return temporal.StatusRunning.ColorTag()
 	case contains(eventType, "Completed"):
-		return theme.StatusColorTag("Completed")
+		return temporal.StatusCompleted.ColorTag()
 	case contains(eventType, "Failed"):
-		return theme.StatusColorTag("Failed")
+		return temporal.StatusFailed.ColorTag()
 	default:
 		return theme.TagFg()
 	}
@@ -761,7 +766,7 @@ func (eh *EventHistory) yankEventData() {
 [%s]%s[-]`,
 		theme.TagAccent(),
 		theme.TagAccent(), eventType,
-		theme.StatusColorTag("Completed"), "Event data copied!"))
+		temporal.StatusCompleted.ColorTag(), "Event data copied!"))
 
 	// Restore preview after a brief delay
 	go func() {
@@ -852,7 +857,7 @@ func (eh *EventHistory) showDetailModal() {
 					// Brief feedback
 					originalText := textView.GetText(false)
 					textView.SetText(fmt.Sprintf("[%s]Copied to clipboard![-]\n\n%s",
-						theme.StatusColorTag("Completed"), originalText))
+						temporal.StatusCompleted.ColorTag(), originalText))
 				}
 				return nil
 			case 'q':
@@ -1009,8 +1014,8 @@ func highlightJSONValueLine(line string) string {
 // highlightValues highlights JSON values (booleans, null, numbers).
 func highlightValues(s string) string {
 	result := s
-	result = strings.ReplaceAll(result, "true", fmt.Sprintf("[%s]true[-]", theme.StatusColorTag("Completed")))
-	result = strings.ReplaceAll(result, "false", fmt.Sprintf("[%s]false[-]", theme.StatusColorTag("Failed")))
+	result = strings.ReplaceAll(result, "true", fmt.Sprintf("[%s]true[-]", temporal.StatusCompleted.ColorTag()))
+	result = strings.ReplaceAll(result, "false", fmt.Sprintf("[%s]false[-]", temporal.StatusFailed.ColorTag()))
 	result = strings.ReplaceAll(result, "null", fmt.Sprintf("[%s]null[-]", theme.TagFgDim()))
 	return result
 }
@@ -1095,8 +1100,8 @@ func highlightJSONValue(s string) string {
 	// This is a basic implementation - a full JSON parser would be more robust
 
 	// Highlight booleans and null
-	result = strings.ReplaceAll(result, "true", fmt.Sprintf("[%s]true[-]", theme.StatusColorTag("Completed")))
-	result = strings.ReplaceAll(result, "false", fmt.Sprintf("[%s]false[-]", theme.StatusColorTag("Failed")))
+	result = strings.ReplaceAll(result, "true", fmt.Sprintf("[%s]true[-]", temporal.StatusCompleted.ColorTag()))
+	result = strings.ReplaceAll(result, "false", fmt.Sprintf("[%s]false[-]", temporal.StatusFailed.ColorTag()))
 	result = strings.ReplaceAll(result, "null", fmt.Sprintf("[%s]null[-]", theme.TagFgDim()))
 
 	return result

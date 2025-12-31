@@ -57,6 +57,10 @@ func NewWorkflowList(app *App, namespace string) *WorkflowList {
 		maxHistorySize: 50,
 	}
 	wl.setup()
+
+	// Register for automatic theme refresh
+	theme.RegisterRefreshable(wl)
+
 	return wl
 }
 
@@ -156,8 +160,9 @@ func (wl *WorkflowList) RefreshTheme() {
 
 func (wl *WorkflowList) updatePreview(w temporal.Workflow) {
 	now := time.Now()
-	statusColor := theme.StatusColorTag(w.Status)
-	statusIcon := theme.StatusIcon(w.Status)
+	statusHandle := temporal.GetWorkflowStatus(w.Status)
+	statusColor := statusHandle.ColorTag()
+	statusIcon := statusHandle.Icon()
 
 	endTimeStr := "-"
 	durationStr := "-"
@@ -361,7 +366,8 @@ func (wl *WorkflowList) populateTable() {
 
 	now := time.Now()
 	for _, w := range wl.workflows {
-		wl.table.AddStyledRowSimple(w.Status,
+		statusHandle := temporal.GetWorkflowStatus(w.Status)
+		wl.table.AddRowWithStatus(statusHandle, 1, // status column is index 1
 			truncateIfNeeded(w.ID, idWidth),
 			w.Status,
 			truncateIfNeeded(w.Type, typeWidth),
@@ -386,11 +392,11 @@ func (wl *WorkflowList) updateStats() {
 	var running, completed, failed int
 	for _, w := range wl.workflows {
 		switch w.Status {
-		case temporal.StatusRunning:
+		case "Running":
 			running++
-		case temporal.StatusCompleted:
+		case "Completed":
 			completed++
-		case temporal.StatusFailed:
+		case "Failed":
 			failed++
 		}
 	}
@@ -978,9 +984,9 @@ func (wl *WorkflowList) updateSelectionPreview() {
 			theme.TagPanelTitle(),
 			theme.TagAccent(), count,
 			theme.TagFgDim(),
-			theme.StatusColorTag("Running"), theme.StatusIcon("Running"), running,
-			theme.StatusColorTag("Completed"), theme.StatusIcon("Completed"), completed,
-			theme.StatusColorTag("Failed"), theme.StatusIcon("Failed"), failed,
+			temporal.StatusRunning.ColorTag(), temporal.StatusRunning.Icon(), running,
+			temporal.StatusCompleted.ColorTag(), temporal.StatusCompleted.Icon(), completed,
+			temporal.StatusFailed.ColorTag(), temporal.StatusFailed.Icon(), failed,
 			theme.TagFgDim())
 		wl.preview.SetText(text)
 	}

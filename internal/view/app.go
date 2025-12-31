@@ -81,9 +81,6 @@ func NewAppWithProvider(provider temporal.Provider, defaultNamespace string, cfg
 }
 
 func (a *App) buildApp() {
-	// Register Temporal-specific statuses with jig's theme system
-	temporal.RegisterTemporalStatuses()
-
 	// Create status bar with left-aligned title and content
 	a.statusBar = layout.NewStatusBar()
 	a.statusBar.SetTitle("tempo")
@@ -757,8 +754,7 @@ func (a *App) showThemeSelector() {
 		list.AddItem(prefix+name, "", 0, func() {
 			newTheme := themes.Get(name)
 			if newTheme != nil {
-				theme.SetProvider(newTheme)
-				a.refreshCurrentView()
+				theme.SetProvider(newTheme) // Auto-refreshes all registered views
 			}
 			// Save theme to config
 			go func() {
@@ -790,8 +786,7 @@ func (a *App) showThemeSelector() {
 		list.AddItem(prefix+name, "", 0, func() {
 			newTheme := themes.Get(name)
 			if newTheme != nil {
-				theme.SetProvider(newTheme)
-				a.refreshCurrentView()
+				theme.SetProvider(newTheme) // Auto-refreshes all registered views
 			}
 			// Save theme to config
 			go func() {
@@ -825,7 +820,7 @@ func (a *App) showThemeSelector() {
 		if themeName, ok := listToTheme[index]; ok {
 			newTheme := themes.Get(themeName)
 			if newTheme != nil {
-				theme.SetProvider(newTheme)
+				theme.SetProvider(newTheme) // Auto-refreshes all registered views
 				// Update list colors for new theme
 				newBg := theme.Bg()
 				list.SetBackgroundColor(newBg)
@@ -834,8 +829,6 @@ func (a *App) showThemeSelector() {
 				list.SetSelectedBackgroundColor(theme.Accent())
 				list.SetSelectedTextColor(newBg)
 				list.SetSelectedStyle(tcell.StyleDefault.Background(theme.Accent()).Foreground(newBg))
-				// Refresh current view for live preview
-				a.refreshCurrentView()
 			}
 		}
 	})
@@ -850,8 +843,7 @@ func (a *App) showThemeSelector() {
 			// Restore original theme on cancel
 			origTheme := themes.Get(originalTheme)
 			if origTheme != nil {
-				theme.SetProvider(origTheme)
-				a.refreshCurrentView()
+				theme.SetProvider(origTheme) // Auto-refreshes all registered views
 			}
 			a.closeThemeSelector()
 		})
@@ -865,8 +857,7 @@ func (a *App) showThemeSelector() {
 			// Restore original theme on cancel
 			origTheme := themes.Get(originalTheme)
 			if origTheme != nil {
-				theme.SetProvider(origTheme)
-				a.refreshCurrentView()
+				theme.SetProvider(origTheme) // Auto-refreshes all registered views
 			}
 			a.closeThemeSelector()
 			return nil
@@ -906,7 +897,10 @@ func (a *App) showThemeSelector() {
 }
 
 // refreshCurrentView calls RefreshTheme on the current view if it supports it.
-// This is used for live theme preview without Stop/Start lifecycle.
+//
+// Deprecated: As of jig v0.0.6, theme.SetProvider() automatically calls RefreshTheme()
+// on all registered Refreshable components and triggers a redraw. This method is no
+// longer needed for theme switching. Kept for backwards compatibility.
 func (a *App) refreshCurrentView() {
 	if current := a.app.Pages().Current(); current != nil {
 		if refreshable, ok := current.(interface{ RefreshTheme() }); ok {
