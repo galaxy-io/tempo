@@ -18,12 +18,10 @@ import (
 
 // WorkflowList displays a list of workflows with a preview panel.
 type WorkflowList struct {
-	*tview.Flex
+	*components.MasterDetailView
 	app              *App
 	namespace        string
 	table            *components.Table
-	leftPanel        *components.Panel
-	rightPanel       *components.Panel
 	preview          *tview.TextView
 	emptyState       *components.EmptyState
 	noResultsState   *components.EmptyState
@@ -33,7 +31,6 @@ type WorkflowList struct {
 	visibilityQuery  string // Temporal visibility query
 	loading          bool
 	autoRefresh      bool
-	showPreview      bool
 	refreshTicker    *time.Ticker
 	stopRefresh      chan struct{}
 	selectionMode    bool     // Multi-select mode active
@@ -49,13 +46,11 @@ type WorkflowList struct {
 // NewWorkflowList creates a new workflow list view.
 func NewWorkflowList(app *App, namespace string) *WorkflowList {
 	wl := &WorkflowList{
-		Flex:           tview.NewFlex().SetDirection(tview.FlexColumn),
 		app:            app,
 		namespace:      namespace,
 		table:          components.NewTable(),
 		preview:        tview.NewTextView(),
 		workflows:      []temporal.Workflow{},
-		showPreview:    true,
 		stopRefresh:    make(chan struct{}),
 		searchHistory:  make([]string, 0, 50),
 		historyIndex:   -1,
@@ -69,7 +64,6 @@ func (wl *WorkflowList) setup() {
 	wl.table.SetHeaders("WORKFLOW ID", "STATUS", "TYPE", "START TIME")
 	wl.table.SetBorder(false)
 	wl.table.SetBackgroundColor(theme.Bg())
-	wl.SetBackgroundColor(theme.Bg())
 
 	// Configure preview
 	wl.preview.SetDynamicColors(true)
@@ -114,12 +108,14 @@ func (wl *WorkflowList) setup() {
 		SetMessage("No workflows match the current filter")
 	wl.noResultsState.SetInputCapture(emptyInputCapture)
 
-	// Create panels with icons (blubber pattern)
-	wl.leftPanel = components.NewPanel().SetTitle(fmt.Sprintf("%s Workflows", theme.IconWorkflow))
-	wl.leftPanel.SetContent(wl.table)
-
-	wl.rightPanel = components.NewPanel().SetTitle(fmt.Sprintf("%s Preview", theme.IconInfo))
-	wl.rightPanel.SetContent(wl.preview)
+	// Create MasterDetailView
+	wl.MasterDetailView = components.NewMasterDetailView().
+		SetMasterTitle(fmt.Sprintf("%s Workflows", theme.IconWorkflow)).
+		SetDetailTitle(fmt.Sprintf("%s Preview", theme.IconInfo)).
+		SetMasterContent(wl.table).
+		SetDetailContent(wl.preview).
+		SetRatio(0.6).
+		ConfigureEmpty(theme.IconInfo, "No Selection", "Select a workflow to view details")
 
 	// Selection change handler to update preview
 	wl.table.SetSelectionChangedFunc(func(row, col int) {
@@ -135,23 +131,10 @@ func (wl *WorkflowList) setup() {
 			wl.app.NavigateToWorkflowDetail(wf.ID, wf.RunID)
 		}
 	})
-
-	wl.buildLayout()
-}
-
-func (wl *WorkflowList) buildLayout() {
-	wl.Clear()
-	if wl.showPreview {
-		wl.AddItem(wl.leftPanel, 0, 3, true)
-		wl.AddItem(wl.rightPanel, 0, 2, false)
-	} else {
-		wl.AddItem(wl.leftPanel, 0, 1, true)
-	}
 }
 
 func (wl *WorkflowList) togglePreview() {
-	wl.showPreview = !wl.showPreview
-	wl.buildLayout()
+	wl.ToggleDetail()
 	// Repopulate table to recalculate column widths for new layout
 	wl.populateTable()
 }
@@ -159,9 +142,6 @@ func (wl *WorkflowList) togglePreview() {
 // RefreshTheme updates all component colors after a theme change.
 func (wl *WorkflowList) RefreshTheme() {
 	bg := theme.Bg()
-
-	// Update main container
-	wl.SetBackgroundColor(bg)
 
 	// Update table
 	wl.table.SetBackgroundColor(bg)
@@ -366,15 +346,15 @@ func (wl *WorkflowList) populateTable() {
 
 	if len(wl.workflows) == 0 {
 		if len(wl.allWorkflows) == 0 {
-			wl.leftPanel.SetContent(wl.emptyState)
+			wl.SetMasterContent(wl.emptyState)
 		} else {
-			wl.leftPanel.SetContent(wl.noResultsState)
+			wl.SetMasterContent(wl.noResultsState)
 		}
 		wl.preview.SetText("")
 		return
 	}
 
-	wl.leftPanel.SetContent(wl.table)
+	wl.SetMasterContent(wl.table)
 
 	// Calculate dynamic column widths based on available space
 	idWidth, typeWidth := wl.calculateColumnWidths()
@@ -627,7 +607,7 @@ func (wl *WorkflowList) HandleEscape() bool {
 // Focus sets focus to the table.
 func (wl *WorkflowList) Focus(delegate func(p tview.Primitive)) {
 	if len(wl.workflows) == 0 && len(wl.allWorkflows) == 0 {
-		delegate(wl.Flex)
+		delegate(wl.MasterDetailView)
 		return
 	}
 	delegate(wl.table)
@@ -636,10 +616,9 @@ func (wl *WorkflowList) Focus(delegate func(p tview.Primitive)) {
 // Draw applies theme colors dynamically and draws the view.
 func (wl *WorkflowList) Draw(screen tcell.Screen) {
 	bg := theme.Bg()
-	wl.SetBackgroundColor(bg)
 	wl.preview.SetBackgroundColor(bg)
 	wl.preview.SetTextColor(theme.Fg())
-	wl.Flex.Draw(screen)
+	wl.MasterDetailView.Draw(screen)
 }
 
 func (wl *WorkflowList) showFilter() {
@@ -762,14 +741,14 @@ func (wl *WorkflowList) searchServer(searchTerm string) {
 // updateFilterTitle updates the panel title with filter info and hint.
 func (wl *WorkflowList) updateFilterTitle(filter, hint string) {
 	if filter == "" {
-		wl.leftPanel.SetTitle(fmt.Sprintf("%s Workflows", theme.IconWorkflow))
+		wl.SetMasterTitle(fmt.Sprintf("%s Workflows", theme.IconWorkflow))
 		wl.app.SetFilterSuggestion("")
 		return
 	}
 
 	// Show only what the user typed in the title (no autocomplete suffix)
 	title := fmt.Sprintf("%s Workflows (/%s)", theme.IconWorkflow, filter)
-	wl.leftPanel.SetTitle(title)
+	wl.SetMasterTitle(title)
 
 	// Set ghost text suggestion in command bar if we have a matching hint
 	if hint != "" && strings.HasPrefix(strings.ToLower(hint), strings.ToLower(filter)) {
@@ -882,13 +861,12 @@ func truncateIfNeeded(s string, maxLen int) string {
 // calculateColumnWidths determines optimal column widths based on available space.
 // Returns (idWidth, typeWidth) where 0 means no truncation needed.
 func (wl *WorkflowList) calculateColumnWidths() (int, int) {
-	// Calculate width based on parent flex and preview state
-	// We can't rely on leftPanel.GetInnerRect() as it may have stale dimensions
-	_, _, totalWidth, _ := wl.Flex.GetInnerRect()
+	// Calculate width based on parent and preview state
+	_, _, totalWidth, _ := wl.MasterDetailView.GetInnerRect()
 
 	var width int
 	if totalWidth > 0 {
-		if wl.showPreview {
+		if wl.IsDetailVisible() {
 			// Left panel gets 3/5 of space when preview is shown
 			width = (totalWidth * 3) / 5
 		} else {
@@ -956,11 +934,11 @@ func (wl *WorkflowList) toggleSelectionMode() {
 	wl.selectionMode = !wl.selectionMode
 	if wl.selectionMode {
 		wl.table.SetMultiSelect(true)
-		wl.leftPanel.SetTitle(fmt.Sprintf("%s Workflows (Select Mode)", theme.IconWorkflow))
+		wl.SetMasterTitle(fmt.Sprintf("%s Workflows (Select Mode)", theme.IconWorkflow))
 	} else {
 		wl.table.SetMultiSelect(false)
 		wl.table.ClearSelection()
-		wl.leftPanel.SetTitle(fmt.Sprintf("%s Workflows", theme.IconWorkflow))
+		wl.SetMasterTitle(fmt.Sprintf("%s Workflows", theme.IconWorkflow))
 	}
 	wl.app.JigApp().Menu().SetHints(wl.Hints())
 }
@@ -1578,7 +1556,7 @@ func (wl *WorkflowList) updatePanelTitle() {
 	} else if wl.filterText != "" {
 		title = fmt.Sprintf("%s Workflows (/%s)", theme.IconWorkflow, wl.filterText)
 	}
-	wl.leftPanel.SetTitle(title)
+	wl.SetMasterTitle(title)
 }
 
 // Diff methods

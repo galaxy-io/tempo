@@ -15,17 +15,14 @@ import (
 
 // NamespaceList displays a list of Temporal namespaces with a preview panel.
 type NamespaceList struct {
-	*tview.Flex
+	*components.MasterDetailView
 	table         *components.Table
-	leftPanel     *components.Panel
-	rightPanel    *components.Panel
 	preview       *tview.TextView
 	emptyState    *components.EmptyState
 	app           *App
 	namespaces    []temporal.Namespace
 	loading       bool
 	autoRefresh   bool
-	showPreview   bool
 	refreshTicker *time.Ticker
 	stopRefresh   chan struct{}
 }
@@ -33,12 +30,10 @@ type NamespaceList struct {
 // NewNamespaceList creates a new namespace list view.
 func NewNamespaceList(app *App) *NamespaceList {
 	nl := &NamespaceList{
-		Flex:        tview.NewFlex().SetDirection(tview.FlexColumn),
 		table:       components.NewTable(),
 		preview:     tview.NewTextView(),
 		app:         app,
 		namespaces:  []temporal.Namespace{},
-		showPreview: true,
 		autoRefresh: true,
 		stopRefresh: make(chan struct{}),
 	}
@@ -50,7 +45,6 @@ func (nl *NamespaceList) setup() {
 	nl.table.SetHeaders("NAME", "STATE", "RETENTION")
 	nl.table.SetBorder(false)
 	nl.table.SetBackgroundColor(theme.Bg())
-	nl.SetBackgroundColor(theme.Bg())
 
 	// Configure preview
 	nl.preview.SetDynamicColors(true)
@@ -64,12 +58,14 @@ func (nl *NamespaceList) setup() {
 		SetTitle("No Namespaces").
 		SetMessage("No namespaces found")
 
-	// Create panels with icons (blubber pattern)
-	nl.leftPanel = components.NewPanel().SetTitle(fmt.Sprintf("%s Namespaces", theme.IconNamespace))
-	nl.leftPanel.SetContent(nl.table)
-
-	nl.rightPanel = components.NewPanel().SetTitle(fmt.Sprintf("%s Details", theme.IconInfo))
-	nl.rightPanel.SetContent(nl.preview)
+	// Create MasterDetailView
+	nl.MasterDetailView = components.NewMasterDetailView().
+		SetMasterTitle(fmt.Sprintf("%s Namespaces", theme.IconNamespace)).
+		SetDetailTitle(fmt.Sprintf("%s Details", theme.IconInfo)).
+		SetMasterContent(nl.table).
+		SetDetailContent(nl.preview).
+		SetRatio(0.6).
+		ConfigureEmpty(theme.IconInfo, "No Selection", "Select a namespace to view details")
 
 	// Selection change handler to update preview and hints
 	nl.table.SetSelectionChangedFunc(func(row, col int) {
@@ -86,31 +82,15 @@ func (nl *NamespaceList) setup() {
 			nl.app.NavigateToWorkflows(nl.namespaces[row].Name)
 		}
 	})
-
-	nl.buildLayout()
-}
-
-func (nl *NamespaceList) buildLayout() {
-	nl.Clear()
-	if nl.showPreview {
-		nl.AddItem(nl.leftPanel, 0, 3, true)
-		nl.AddItem(nl.rightPanel, 0, 2, false)
-	} else {
-		nl.AddItem(nl.leftPanel, 0, 1, true)
-	}
 }
 
 func (nl *NamespaceList) togglePreview() {
-	nl.showPreview = !nl.showPreview
-	nl.buildLayout()
+	nl.ToggleDetail()
 }
 
 // RefreshTheme updates all component colors after a theme change.
 func (nl *NamespaceList) RefreshTheme() {
 	bg := theme.Bg()
-
-	// Update main container
-	nl.SetBackgroundColor(bg)
 
 	// Update table
 	nl.table.SetBackgroundColor(bg)
@@ -214,12 +194,12 @@ func (nl *NamespaceList) populateTable() {
 	nl.table.SetHeaders("NAME", "STATE", "RETENTION")
 
 	if len(nl.namespaces) == 0 {
-		nl.leftPanel.SetContent(nl.emptyState)
+		nl.SetMasterContent(nl.emptyState)
 		nl.preview.SetText("")
 		return
 	}
 
-	nl.leftPanel.SetContent(nl.table)
+	nl.SetMasterContent(nl.table)
 
 	for _, ns := range nl.namespaces {
 		nl.table.AddStyledRowSimple(ns.State,
@@ -391,7 +371,7 @@ func (nl *NamespaceList) Hints() []KeyHint {
 // Focus sets focus to the table.
 func (nl *NamespaceList) Focus(delegate func(p tview.Primitive)) {
 	if len(nl.namespaces) == 0 {
-		delegate(nl.Flex)
+		delegate(nl.MasterDetailView)
 		return
 	}
 	delegate(nl.table)
@@ -400,10 +380,9 @@ func (nl *NamespaceList) Focus(delegate func(p tview.Primitive)) {
 // Draw applies theme colors dynamically and draws the view.
 func (nl *NamespaceList) Draw(screen tcell.Screen) {
 	bg := theme.Bg()
-	nl.SetBackgroundColor(bg)
 	nl.preview.SetBackgroundColor(bg)
 	nl.preview.SetTextColor(theme.Fg())
-	nl.Flex.Draw(screen)
+	nl.MasterDetailView.Draw(screen)
 }
 
 // getSelectedNamespace returns the currently selected namespace.

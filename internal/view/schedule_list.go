@@ -14,28 +14,23 @@ import (
 
 // ScheduleList displays a list of schedules with actions.
 type ScheduleList struct {
-	*tview.Flex
-	app         *App
-	namespace   string
-	table       *components.Table
-	leftPanel   *components.Panel
-	rightPanel  *components.Panel
-	preview     *tview.TextView
-	schedules   []temporal.Schedule
-	loading     bool
-	showPreview bool
+	*components.MasterDetailView
+	app       *App
+	namespace string
+	table     *components.Table
+	preview   *tview.TextView
+	schedules []temporal.Schedule
+	loading   bool
 }
 
 // NewScheduleList creates a new schedule list view.
 func NewScheduleList(app *App, namespace string) *ScheduleList {
 	sl := &ScheduleList{
-		Flex:        tview.NewFlex().SetDirection(tview.FlexColumn),
-		app:         app,
-		namespace:   namespace,
-		table:       components.NewTable(),
-		preview:     tview.NewTextView(),
-		schedules:   []temporal.Schedule{},
-		showPreview: true,
+		app:       app,
+		namespace: namespace,
+		table:     components.NewTable(),
+		preview:   tview.NewTextView(),
+		schedules: []temporal.Schedule{},
 	}
 	sl.setup()
 	return sl
@@ -45,7 +40,6 @@ func (sl *ScheduleList) setup() {
 	sl.table.SetHeaders("SCHEDULE ID", "WORKFLOW TYPE", "SPEC", "STATUS", "NEXT RUN")
 	sl.table.SetBorder(false)
 	sl.table.SetBackgroundColor(theme.Bg())
-	sl.SetBackgroundColor(theme.Bg())
 
 	// Configure preview
 	sl.preview.SetDynamicColors(true)
@@ -53,12 +47,14 @@ func (sl *ScheduleList) setup() {
 	sl.preview.SetTextColor(theme.Fg())
 	sl.preview.SetWordWrap(true)
 
-	// Create panels with icons (blubber pattern)
-	sl.leftPanel = components.NewPanel().SetTitle(fmt.Sprintf("%s Schedules", theme.IconSchedule))
-	sl.leftPanel.SetContent(sl.table)
-
-	sl.rightPanel = components.NewPanel().SetTitle(fmt.Sprintf("%s Preview", theme.IconInfo))
-	sl.rightPanel.SetContent(sl.preview)
+	// Create MasterDetailView
+	sl.MasterDetailView = components.NewMasterDetailView().
+		SetMasterTitle(fmt.Sprintf("%s Schedules", theme.IconSchedule)).
+		SetDetailTitle(fmt.Sprintf("%s Preview", theme.IconInfo)).
+		SetMasterContent(sl.table).
+		SetDetailContent(sl.preview).
+		SetRatio(0.6).
+		ConfigureEmpty(theme.IconInfo, "No Selection", "Select a schedule to view details")
 
 	// Selection change handler to update preview
 	sl.table.SetSelectionChangedFunc(func(row, col int) {
@@ -66,31 +62,15 @@ func (sl *ScheduleList) setup() {
 			sl.updatePreview(sl.schedules[row-1])
 		}
 	})
-
-	sl.buildLayout()
-}
-
-func (sl *ScheduleList) buildLayout() {
-	sl.Clear()
-	if sl.showPreview {
-		sl.AddItem(sl.leftPanel, 0, 3, true)
-		sl.AddItem(sl.rightPanel, 0, 2, false)
-	} else {
-		sl.AddItem(sl.leftPanel, 0, 1, true)
-	}
 }
 
 func (sl *ScheduleList) togglePreview() {
-	sl.showPreview = !sl.showPreview
-	sl.buildLayout()
+	sl.ToggleDetail()
 }
 
 // RefreshTheme updates all component colors after a theme change.
 func (sl *ScheduleList) RefreshTheme() {
 	bg := theme.Bg()
-
-	// Update main container
-	sl.SetBackgroundColor(bg)
 
 	// Update table
 	sl.table.SetBackgroundColor(bg)
@@ -673,8 +653,7 @@ func (sl *ScheduleList) Focus(delegate func(p tview.Primitive)) {
 // Draw applies theme colors dynamically and draws the view.
 func (sl *ScheduleList) Draw(screen tcell.Screen) {
 	bg := theme.Bg()
-	sl.SetBackgroundColor(bg)
 	sl.preview.SetBackgroundColor(bg)
 	sl.preview.SetTextColor(theme.Fg())
-	sl.Flex.Draw(screen)
+	sl.MasterDetailView.Draw(screen)
 }

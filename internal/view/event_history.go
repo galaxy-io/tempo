@@ -25,7 +25,7 @@ const (
 
 // EventHistory displays workflow event history with multiple view modes.
 type EventHistory struct {
-	*tview.Flex
+	*components.MasterDetailView
 	app        *App
 	workflowID string
 	runID      string
@@ -44,10 +44,7 @@ type EventHistory struct {
 	timelineView *TimelineView
 
 	// Shared components
-	leftPanel   *components.Panel
-	rightPanel  *components.Panel
-	sidePanel   *tview.TextView
-	sidePanelOn bool
+	sidePanel *tview.TextView
 
 	// Data
 	events         []temporal.HistoryEvent
@@ -58,7 +55,6 @@ type EventHistory struct {
 // NewEventHistory creates a new event history view.
 func NewEventHistory(app *App, workflowID, runID string) *EventHistory {
 	eh := &EventHistory{
-		Flex:         tview.NewFlex().SetDirection(tview.FlexColumn),
 		app:          app,
 		workflowID:   workflowID,
 		runID:        runID,
@@ -67,15 +63,12 @@ func NewEventHistory(app *App, workflowID, runID string) *EventHistory {
 		treeView:     NewEventTreeView(),
 		timelineView: NewTimelineView(),
 		sidePanel:    tview.NewTextView(),
-		sidePanelOn:  true,
 	}
 	eh.setup()
 	return eh
 }
 
 func (eh *EventHistory) setup() {
-	eh.SetBackgroundColor(theme.Bg())
-
 	// Configure list view table
 	eh.table.SetHeaders("ID", "TIME", "TYPE", "NAME", "DETAILS")
 	eh.table.SetBorder(false)
@@ -86,14 +79,18 @@ func (eh *EventHistory) setup() {
 	eh.sidePanel.SetTextAlign(tview.AlignLeft)
 	eh.sidePanel.SetBackgroundColor(theme.Bg())
 
-	// Create panels with icons (blubber pattern)
-	eh.leftPanel = components.NewPanel().SetTitle(fmt.Sprintf("%s Events (Tree)", theme.IconEvent))
-	eh.rightPanel = components.NewPanel().SetTitle(fmt.Sprintf("%s Details", theme.IconInfo))
-	eh.rightPanel.SetContent(eh.sidePanel)
+	// Create MasterDetailView - default to tree view
+	eh.MasterDetailView = components.NewMasterDetailView().
+		SetMasterTitle(fmt.Sprintf("%s Events (Tree)", theme.IconEvent)).
+		SetDetailTitle(fmt.Sprintf("%s Details", theme.IconInfo)).
+		SetMasterContent(eh.treeView).
+		SetDetailContent(eh.sidePanel).
+		SetRatio(0.6).
+		ConfigureEmpty(theme.IconInfo, "No Event", "Select an event to view details")
 
 	// List view selection handlers
 	eh.table.SetSelectionChangedFunc(func(row, col int) {
-		if eh.viewMode == ViewModeList && eh.sidePanelOn && row > 0 {
+		if eh.viewMode == ViewModeList && eh.IsDetailVisible() && row > 0 {
 			eh.updateSidePanelFromList(row - 1)
 		}
 	})
@@ -101,7 +98,7 @@ func (eh *EventHistory) setup() {
 	eh.table.SetSelectedFunc(func(row, col int) {
 		if row > 0 {
 			eh.toggleSidePanel()
-			if eh.sidePanelOn {
+			if eh.IsDetailVisible() {
 				eh.updateSidePanelFromList(row - 1)
 			}
 		}
@@ -109,7 +106,7 @@ func (eh *EventHistory) setup() {
 
 	// Tree view selection handlers
 	eh.treeView.SetOnSelectionChanged(func(node *temporal.EventTreeNode) {
-		if eh.viewMode == ViewModeTree && eh.sidePanelOn {
+		if eh.viewMode == ViewModeTree && eh.IsDetailVisible() {
 			eh.updateSidePanelFromTree(node)
 		}
 	})
@@ -132,31 +129,20 @@ func (eh *EventHistory) setup() {
 			eh.updateSidePanelFromTree(lane.Node)
 		}
 	})
-
-	eh.buildLayout()
 }
 
 func (eh *EventHistory) buildLayout() {
-	eh.Clear()
-
 	// Update panel title and content based on view mode
 	switch eh.viewMode {
 	case ViewModeList:
-		eh.leftPanel.SetTitle(fmt.Sprintf("%s Events (List)", theme.IconEvent))
-		eh.leftPanel.SetContent(eh.table)
+		eh.SetMasterTitle(fmt.Sprintf("%s Events (List)", theme.IconEvent))
+		eh.SetMasterContent(eh.table)
 	case ViewModeTree:
-		eh.leftPanel.SetTitle(fmt.Sprintf("%s Events (Tree)", theme.IconEvent))
-		eh.leftPanel.SetContent(eh.treeView)
+		eh.SetMasterTitle(fmt.Sprintf("%s Events (Tree)", theme.IconEvent))
+		eh.SetMasterContent(eh.treeView)
 	case ViewModeTimeline:
-		eh.leftPanel.SetTitle(fmt.Sprintf("%s Events (Timeline)", theme.IconEvent))
-		eh.leftPanel.SetContent(eh.timelineView)
-	}
-
-	if eh.sidePanelOn {
-		eh.AddItem(eh.leftPanel, 0, 3, true)
-		eh.AddItem(eh.rightPanel, 0, 2, false)
-	} else {
-		eh.AddItem(eh.leftPanel, 0, 1, true)
+		eh.SetMasterTitle(fmt.Sprintf("%s Events (Timeline)", theme.IconEvent))
+		eh.SetMasterContent(eh.timelineView)
 	}
 
 	// Set focus to the active view component
@@ -206,9 +192,6 @@ func (eh *EventHistory) setLoading(loading bool) {
 func (eh *EventHistory) RefreshTheme() {
 	bg := theme.Bg()
 	fg := theme.Fg()
-
-	// Update main container
-	eh.SetBackgroundColor(bg)
 
 	// Update table (list view)
 	eh.table.SetBackgroundColor(bg)
@@ -376,8 +359,7 @@ func (eh *EventHistory) showError(err error) {
 }
 
 func (eh *EventHistory) toggleSidePanel() {
-	eh.sidePanelOn = !eh.sidePanelOn
-	eh.buildLayout()
+	eh.ToggleDetail()
 }
 
 func (eh *EventHistory) updateSidePanelFromList(index int) {
@@ -637,9 +619,8 @@ func (eh *EventHistory) Focus(delegate func(p tview.Primitive)) {
 // Draw applies theme colors dynamically and draws the view.
 func (eh *EventHistory) Draw(screen tcell.Screen) {
 	bg := theme.Bg()
-	eh.SetBackgroundColor(bg)
 	eh.sidePanel.SetBackgroundColor(bg)
-	eh.Flex.Draw(screen)
+	eh.MasterDetailView.Draw(screen)
 }
 
 // eventIcon returns an icon for the event type.
