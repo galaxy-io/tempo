@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/atterpac/jig/async"
 	"github.com/atterpac/jig/components"
 	"github.com/atterpac/jig/theme"
 	"github.com/galaxy-io/tempo/internal/temporal"
@@ -156,22 +157,24 @@ func (sl *ScheduleList) loadData() {
 	}
 
 	sl.loading = true
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
+	namespace := sl.namespace
 
-		schedules, _, err := provider.ListSchedules(ctx, sl.namespace, temporal.ListOptions{PageSize: 100})
-
-		sl.app.JigApp().QueueUpdateDraw(func() {
-			sl.loading = false
-			if err != nil {
-				sl.showError(err)
-				return
-			}
+	async.NewLoader[[]temporal.Schedule]().
+		WithTimeout(10 * time.Second).
+		OnSuccess(func(schedules []temporal.Schedule) {
 			sl.schedules = schedules
 			sl.populateTable()
+		}).
+		OnError(func(err error) {
+			sl.showError(err)
+		}).
+		OnFinally(func() {
+			sl.loading = false
+		}).
+		Run(func(ctx context.Context) ([]temporal.Schedule, error) {
+			schedules, _, err := provider.ListSchedules(ctx, namespace, temporal.ListOptions{PageSize: 100})
+			return schedules, err
 		})
-	}()
 }
 
 func (sl *ScheduleList) loadMockData() {
@@ -399,20 +402,18 @@ func (sl *ScheduleList) executePauseSchedule(scheduleID, reason string) {
 		return
 	}
 
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		err := provider.PauseSchedule(ctx, sl.namespace, scheduleID, reason)
-
-		sl.app.JigApp().QueueUpdateDraw(func() {
-			if err != nil {
-				sl.showError(err)
-				return
-			}
-			sl.loadData() // Refresh to show updated status
+	namespace := sl.namespace
+	async.NewLoader[struct{}]().
+		WithTimeout(10 * time.Second).
+		OnSuccess(func(_ struct{}) {
+			sl.loadData()
+		}).
+		OnError(func(err error) {
+			sl.showError(err)
+		}).
+		Run(func(ctx context.Context) (struct{}, error) {
+			return struct{}{}, provider.PauseSchedule(ctx, namespace, scheduleID, reason)
 		})
-	}()
 }
 
 func (sl *ScheduleList) executeUnpauseSchedule(scheduleID, reason string) {
@@ -421,20 +422,18 @@ func (sl *ScheduleList) executeUnpauseSchedule(scheduleID, reason string) {
 		return
 	}
 
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		err := provider.UnpauseSchedule(ctx, sl.namespace, scheduleID, reason)
-
-		sl.app.JigApp().QueueUpdateDraw(func() {
-			if err != nil {
-				sl.showError(err)
-				return
-			}
-			sl.loadData() // Refresh to show updated status
+	namespace := sl.namespace
+	async.NewLoader[struct{}]().
+		WithTimeout(10 * time.Second).
+		OnSuccess(func(_ struct{}) {
+			sl.loadData()
+		}).
+		OnError(func(err error) {
+			sl.showError(err)
+		}).
+		Run(func(ctx context.Context) (struct{}, error) {
+			return struct{}{}, provider.UnpauseSchedule(ctx, namespace, scheduleID, reason)
 		})
-	}()
 }
 
 func (sl *ScheduleList) showTriggerConfirm() {
@@ -489,20 +488,18 @@ func (sl *ScheduleList) executeTriggerSchedule(scheduleID string) {
 		return
 	}
 
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		err := provider.TriggerSchedule(ctx, sl.namespace, scheduleID)
-
-		sl.app.JigApp().QueueUpdateDraw(func() {
-			if err != nil {
-				sl.showError(err)
-				return
-			}
-			sl.loadData() // Refresh to show updated status
+	namespace := sl.namespace
+	async.NewLoader[struct{}]().
+		WithTimeout(10 * time.Second).
+		OnSuccess(func(_ struct{}) {
+			sl.loadData()
+		}).
+		OnError(func(err error) {
+			sl.showError(err)
+		}).
+		Run(func(ctx context.Context) (struct{}, error) {
+			return struct{}{}, provider.TriggerSchedule(ctx, namespace, scheduleID)
 		})
-	}()
 }
 
 func (sl *ScheduleList) showDeleteConfirm() {
@@ -579,20 +576,18 @@ func (sl *ScheduleList) executeDeleteSchedule(scheduleID string) {
 		return
 	}
 
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		err := provider.DeleteSchedule(ctx, sl.namespace, scheduleID)
-
-		sl.app.JigApp().QueueUpdateDraw(func() {
-			if err != nil {
-				sl.showError(err)
-				return
-			}
-			sl.loadData() // Refresh to remove deleted schedule
+	namespace := sl.namespace
+	async.NewLoader[struct{}]().
+		WithTimeout(10 * time.Second).
+		OnSuccess(func(_ struct{}) {
+			sl.loadData()
+		}).
+		OnError(func(err error) {
+			sl.showError(err)
+		}).
+		Run(func(ctx context.Context) (struct{}, error) {
+			return struct{}{}, provider.DeleteSchedule(ctx, namespace, scheduleID)
 		})
-	}()
 }
 
 func (sl *ScheduleList) closeModal() {

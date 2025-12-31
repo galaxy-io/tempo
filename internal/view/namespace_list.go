@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/atterpac/jig/async"
 	"github.com/atterpac/jig/components"
 	"github.com/atterpac/jig/theme"
 	"github.com/galaxy-io/tempo/internal/temporal"
@@ -162,22 +163,21 @@ func (nl *NamespaceList) loadData() {
 	}
 
 	nl.setLoading(true)
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		namespaces, err := provider.ListNamespaces(ctx)
-
-		nl.app.JigApp().QueueUpdateDraw(func() {
-			nl.setLoading(false)
-			if err != nil {
-				nl.showError(err)
-				return
-			}
+	async.NewLoader[[]temporal.Namespace]().
+		WithTimeout(10 * time.Second).
+		OnSuccess(func(namespaces []temporal.Namespace) {
 			nl.namespaces = namespaces
 			nl.populateTable()
+		}).
+		OnError(func(err error) {
+			nl.showError(err)
+		}).
+		OnFinally(func() {
+			nl.setLoading(false)
+		}).
+		Run(func(ctx context.Context) ([]temporal.Namespace, error) {
+			return provider.ListNamespaces(ctx)
 		})
-	}()
 }
 
 func (nl *NamespaceList) loadMockData() {
@@ -472,35 +472,31 @@ func (nl *NamespaceList) executeSignalWithStart(namespace, workflowID, workflowT
 		return
 	}
 
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
+	req := temporal.SignalWithStartRequest{
+		WorkflowID:   workflowID,
+		WorkflowType: workflowType,
+		TaskQueue:    taskQueue,
+		SignalName:   signalName,
+	}
 
-		req := temporal.SignalWithStartRequest{
-			WorkflowID:   workflowID,
-			WorkflowType: workflowType,
-			TaskQueue:    taskQueue,
-			SignalName:   signalName,
-		}
+	if signalInput != "" {
+		req.SignalInput = []byte(signalInput)
+	}
+	if workflowInput != "" {
+		req.WorkflowInput = []byte(workflowInput)
+	}
 
-		if signalInput != "" {
-			req.SignalInput = []byte(signalInput)
-		}
-		if workflowInput != "" {
-			req.WorkflowInput = []byte(workflowInput)
-		}
-
-		_, err := provider.SignalWithStartWorkflow(ctx, namespace, req)
-
-		nl.app.JigApp().QueueUpdateDraw(func() {
-			if err != nil {
-				ShowErrorModal(nl.app.JigApp(), "SignalWithStart Failed", err.Error())
-				return
-			}
-
+	async.NewLoader[string]().
+		WithTimeout(10 * time.Second).
+		OnSuccess(func(_ string) {
 			nl.app.ToastSuccess(fmt.Sprintf("SignalWithStart: %s", workflowID))
+		}).
+		OnError(func(err error) {
+			ShowErrorModal(nl.app.JigApp(), "SignalWithStart Failed", err.Error())
+		}).
+		Run(func(ctx context.Context) (string, error) {
+			return provider.SignalWithStartWorkflow(ctx, namespace, req)
 		})
-	}()
 }
 
 // closeModal dismisses the current modal and restores focus.
@@ -592,22 +588,18 @@ func (nl *NamespaceList) executeCreateNamespace(req temporal.NamespaceCreateRequ
 		return
 	}
 
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		err := provider.CreateNamespace(ctx, req)
-
-		nl.app.JigApp().QueueUpdateDraw(func() {
-			if err != nil {
-				ShowErrorModal(nl.app.JigApp(), "Create Namespace Failed", err.Error())
-				return
-			}
-
+	async.NewLoader[struct{}]().
+		WithTimeout(10 * time.Second).
+		OnSuccess(func(_ struct{}) {
 			nl.app.ToastSuccess(fmt.Sprintf("Namespace '%s' created", req.Name))
-			nl.loadData() // Refresh the list
+			nl.loadData()
+		}).
+		OnError(func(err error) {
+			ShowErrorModal(nl.app.JigApp(), "Create Namespace Failed", err.Error())
+		}).
+		Run(func(ctx context.Context) (struct{}, error) {
+			return struct{}{}, provider.CreateNamespace(ctx, req)
 		})
-	}()
 }
 
 // showEditNamespaceForm displays a modal for editing the selected namespace.
@@ -625,21 +617,21 @@ func (nl *NamespaceList) showEditNamespaceForm() {
 		return
 	}
 
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
+	// Capture values for closure
+	name, desc, owner, retention := ns.Name, ns.Description, ns.OwnerEmail, ns.RetentionPeriod
 
-		detail, err := provider.DescribeNamespace(ctx, ns.Name)
-
-		nl.app.JigApp().QueueUpdateDraw(func() {
-			if err != nil {
-				// Fall back to list data
-				nl.showEditFormWithData(ns.Name, ns.Description, ns.OwnerEmail, ns.RetentionPeriod)
-				return
-			}
+	async.NewLoader[*temporal.NamespaceDetail]().
+		WithTimeout(10 * time.Second).
+		OnSuccess(func(detail *temporal.NamespaceDetail) {
 			nl.showEditFormWithData(detail.Name, detail.Description, detail.OwnerEmail, detail.RetentionPeriod)
+		}).
+		OnError(func(_ error) {
+			// Fall back to list data
+			nl.showEditFormWithData(name, desc, owner, retention)
+		}).
+		Run(func(ctx context.Context) (*temporal.NamespaceDetail, error) {
+			return provider.DescribeNamespace(ctx, name)
 		})
-	}()
 }
 
 // showEditFormWithData displays the edit form with pre-populated values.
@@ -723,22 +715,18 @@ func (nl *NamespaceList) executeUpdateNamespace(req temporal.NamespaceUpdateRequ
 		return
 	}
 
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		err := provider.UpdateNamespace(ctx, req)
-
-		nl.app.JigApp().QueueUpdateDraw(func() {
-			if err != nil {
-				ShowErrorModal(nl.app.JigApp(), "Update Namespace Failed", err.Error())
-				return
-			}
-
+	async.NewLoader[struct{}]().
+		WithTimeout(10 * time.Second).
+		OnSuccess(func(_ struct{}) {
 			nl.app.ToastSuccess(fmt.Sprintf("Namespace '%s' updated", req.Name))
-			nl.loadData() // Refresh the list
+			nl.loadData()
+		}).
+		OnError(func(err error) {
+			ShowErrorModal(nl.app.JigApp(), "Update Namespace Failed", err.Error())
+		}).
+		Run(func(ctx context.Context) (struct{}, error) {
+			return struct{}{}, provider.UpdateNamespace(ctx, req)
 		})
-	}()
 }
 
 // showDeprecateConfirm displays a confirmation modal for deprecating a namespace.
@@ -844,22 +832,18 @@ func (nl *NamespaceList) executeDeprecateNamespace(name string) {
 		return
 	}
 
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		err := provider.DeprecateNamespace(ctx, name)
-
-		nl.app.JigApp().QueueUpdateDraw(func() {
-			if err != nil {
-				ShowErrorModal(nl.app.JigApp(), "Deprecate Namespace Failed", err.Error())
-				return
-			}
-
+	async.NewLoader[struct{}]().
+		WithTimeout(10 * time.Second).
+		OnSuccess(func(_ struct{}) {
 			nl.app.ToastSuccess(fmt.Sprintf("Namespace '%s' deprecated", name))
-			nl.loadData() // Refresh the list
+			nl.loadData()
+		}).
+		OnError(func(err error) {
+			ShowErrorModal(nl.app.JigApp(), "Deprecate Namespace Failed", err.Error())
+		}).
+		Run(func(ctx context.Context) (struct{}, error) {
+			return struct{}{}, provider.DeprecateNamespace(ctx, name)
 		})
-	}()
 }
 
 // showDeleteConfirm displays a confirmation modal for deleting a deprecated namespace.
@@ -969,20 +953,16 @@ func (nl *NamespaceList) executeDeleteNamespace(name string) {
 		return
 	}
 
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		err := provider.DeleteNamespace(ctx, name)
-
-		nl.app.JigApp().QueueUpdateDraw(func() {
-			if err != nil {
-				ShowErrorModal(nl.app.JigApp(), "Delete Namespace Failed", err.Error())
-				return
-			}
-
+	async.NewLoader[struct{}]().
+		WithTimeout(10 * time.Second).
+		OnSuccess(func(_ struct{}) {
 			nl.app.ToastSuccess(fmt.Sprintf("Namespace '%s' deleted", name))
-			nl.loadData() // Refresh the list
+			nl.loadData()
+		}).
+		OnError(func(err error) {
+			ShowErrorModal(nl.app.JigApp(), "Delete Namespace Failed", err.Error())
+		}).
+		Run(func(ctx context.Context) (struct{}, error) {
+			return struct{}{}, provider.DeleteNamespace(ctx, name)
 		})
-	}()
 }
