@@ -11,6 +11,7 @@ import (
 	"github.com/atterpac/jig/theme"
 	"github.com/atterpac/jig/theme/themes"
 	"github.com/atterpac/jig/util"
+	"github.com/galaxy-io/tempo/internal/commands/isbroken"
 	"github.com/galaxy-io/tempo/internal/config"
 	"github.com/galaxy-io/tempo/internal/temporal"
 	"github.com/galaxy-io/tempo/internal/update"
@@ -41,6 +42,12 @@ const (
 )
 
 func main() {
+	// Check for subcommands before flag parsing
+	if len(os.Args) > 1 && os.Args[1] == "isbroken" {
+		isbroken.Run(os.Args[2:])
+		return
+	}
+
 	flag.Parse()
 
 	// Handle version flag

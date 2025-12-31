@@ -3,6 +3,8 @@ package view
 import (
 	"context"
 	"fmt"
+	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -224,6 +226,12 @@ func (a *App) setup() {
 		// Dev mode: splash screen test (capital S)
 		if a.devMode && event.Rune() == 'S' {
 			a.showSplashTest()
+			return nil
+		}
+
+		// Debug screen (!) - works everywhere except modals
+		if event.Rune() == '!' && !isModalPage {
+			a.showDebugScreen()
 			return nil
 		}
 
@@ -646,6 +654,50 @@ func (a *App) closeThemeSelector() {
 	if current := a.app.Pages().Current(); current != nil {
 		a.app.SetFocus(current)
 	}
+}
+
+func (a *App) showDebugScreen() {
+	// Build debug data from current app state
+	data := DebugData{
+		Version:     update.Version,
+		Commit:      update.Commit,
+		BuildDate:   update.BuildDate,
+		OS:          runtime.GOOS,
+		Arch:        runtime.GOARCH,
+		GoVersion:   runtime.Version(),
+		Term:        os.Getenv("TERM"),
+		ColorTerm:   os.Getenv("COLORTERM"),
+		TermProgram: os.Getenv("TERM_PROGRAM"),
+		ConfigPath:  config.ConfigPath(),
+		ThemeName:   a.config.Theme,
+		ProfileName: a.activeProfile,
+	}
+
+	// Get profile connection details
+	if profile, ok := a.config.GetProfile(a.activeProfile); ok {
+		data.ServerAddress = profile.Address
+		data.Namespace = profile.Namespace
+		data.TLSEnabled = profile.TLS.Cert != "" || profile.TLS.CA != ""
+		data.TLSCertPath = profile.TLS.Cert
+		data.TLSKeyPath = profile.TLS.Key
+		data.TLSCAPath = profile.TLS.CA
+	}
+
+	// Detect color space from environment
+	colorTerm := os.Getenv("COLORTERM")
+	term := os.Getenv("TERM")
+	switch {
+	case colorTerm == "truecolor" || colorTerm == "24bit":
+		data.ColorSpace = "truecolor (24-bit)"
+	case strings.Contains(term, "256color"):
+		data.ColorSpace = "256 colors"
+	default:
+		data.ColorSpace = "unknown"
+	}
+
+	// Create and push debug screen
+	debugScreen := NewDebugScreen(data)
+	a.app.Pages().Push(debugScreen)
 }
 
 func (a *App) showCommandBar() {

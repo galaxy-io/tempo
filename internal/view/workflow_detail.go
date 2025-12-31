@@ -623,8 +623,7 @@ func truncateStr(s string, maxLen int) string {
 	return s[:maxLen-3] + "..."
 }
 
-// Mutation methods - stub implementations for migration
-// TODO: Implement full modal functionality using jig components
+// Mutation methods
 
 func (wd *WorkflowDetail) showCancelConfirm() {
 	modal := components.NewModal(components.ModalConfig{
