@@ -562,69 +562,10 @@ func (c *Client) GetWorkflow(ctx context.Context, namespace, workflowID, runID s
 		wf.ParentID = &parentID
 	}
 
-	// Fetch input/output from workflow history
-	wf.Input, wf.Output = c.getWorkflowInputOutput(ctx, namespace, workflowID, runID)
+	// Note: Input/Output are populated separately from event history
+	// to avoid redundant API calls. See workflow_detail.go loadData().
 
 	return wf, nil
-}
-
-// getWorkflowInputOutput extracts input and output from workflow history events.
-func (c *Client) getWorkflowInputOutput(ctx context.Context, namespace, workflowID, runID string) (input, output string) {
-	// Get workflow history to extract input/output
-	histResp, err := c.client.WorkflowService().GetWorkflowExecutionHistory(ctx, &workflowservice.GetWorkflowExecutionHistoryRequest{
-		Namespace: namespace,
-		Execution: &commonpb.WorkflowExecution{
-			WorkflowId: workflowID,
-			RunId:      runID,
-		},
-		MaximumPageSize: 100, // Usually enough to get start and end events
-	})
-	if err != nil {
-		return "", ""
-	}
-
-	events := histResp.GetHistory().GetEvents()
-	for _, event := range events {
-		switch event.GetEventType() {
-		case enums.EVENT_TYPE_WORKFLOW_EXECUTION_STARTED:
-			attrs := event.GetWorkflowExecutionStartedEventAttributes()
-			if attrs != nil && attrs.GetInput() != nil {
-				input = formatPayloads(attrs.GetInput())
-			}
-
-		case enums.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED:
-			attrs := event.GetWorkflowExecutionCompletedEventAttributes()
-			if attrs != nil && attrs.GetResult() != nil {
-				output = formatPayloads(attrs.GetResult())
-			}
-
-		case enums.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED:
-			attrs := event.GetWorkflowExecutionFailedEventAttributes()
-			if attrs != nil && attrs.GetFailure() != nil {
-				output = attrs.GetFailure().GetMessage()
-				if attrs.GetFailure().GetStackTrace() != "" {
-					output += "\n\nStack Trace:\n" + attrs.GetFailure().GetStackTrace()
-				}
-			}
-
-		case enums.EVENT_TYPE_WORKFLOW_EXECUTION_CANCELED:
-			attrs := event.GetWorkflowExecutionCanceledEventAttributes()
-			if attrs != nil && attrs.GetDetails() != nil {
-				output = formatPayloads(attrs.GetDetails())
-			}
-
-		case enums.EVENT_TYPE_WORKFLOW_EXECUTION_TERMINATED:
-			attrs := event.GetWorkflowExecutionTerminatedEventAttributes()
-			if attrs != nil {
-				output = attrs.GetReason()
-			}
-
-		case enums.EVENT_TYPE_WORKFLOW_EXECUTION_TIMED_OUT:
-			output = "Workflow timed out"
-		}
-	}
-
-	return input, output
 }
 
 // GetWorkflowHistory returns the event history for a workflow execution.
@@ -724,7 +665,40 @@ func extractEnhancedEvent(event *historypb.HistoryEvent) EnhancedHistoryEvent {
 				he.Identity = attrs.GetIdentity()
 			}
 			he.Attempt = attrs.GetAttempt()
+			if attrs.GetInput() != nil {
+				he.Input = formatPayloads(attrs.GetInput())
+			}
 		}
+
+	case enums.EVENT_TYPE_WORKFLOW_EXECUTION_COMPLETED:
+		attrs := event.GetWorkflowExecutionCompletedEventAttributes()
+		if attrs != nil && attrs.GetResult() != nil {
+			he.Result = formatPayloads(attrs.GetResult())
+		}
+
+	case enums.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED:
+		attrs := event.GetWorkflowExecutionFailedEventAttributes()
+		if attrs != nil && attrs.GetFailure() != nil {
+			he.Failure = attrs.GetFailure().GetMessage()
+			if attrs.GetFailure().GetStackTrace() != "" {
+				he.Failure += "\n\nStack Trace:\n" + attrs.GetFailure().GetStackTrace()
+			}
+		}
+
+	case enums.EVENT_TYPE_WORKFLOW_EXECUTION_CANCELED:
+		attrs := event.GetWorkflowExecutionCanceledEventAttributes()
+		if attrs != nil && attrs.GetDetails() != nil {
+			he.Result = formatPayloads(attrs.GetDetails())
+		}
+
+	case enums.EVENT_TYPE_WORKFLOW_EXECUTION_TERMINATED:
+		attrs := event.GetWorkflowExecutionTerminatedEventAttributes()
+		if attrs != nil && attrs.GetReason() != "" {
+			he.Failure = attrs.GetReason()
+		}
+
+	case enums.EVENT_TYPE_WORKFLOW_EXECUTION_TIMED_OUT:
+		he.Failure = "Workflow timed out"
 
 	case enums.EVENT_TYPE_WORKFLOW_TASK_SCHEDULED:
 		attrs := event.GetWorkflowTaskScheduledEventAttributes()
