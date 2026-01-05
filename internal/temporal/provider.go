@@ -215,6 +215,7 @@ type EnhancedHistoryEvent struct {
 
 	// Child workflow info
 	ChildWorkflowID   string
+	ChildRunID        string
 	ChildWorkflowType string
 
 	// Timing for Gantt view
