@@ -531,6 +531,9 @@ func (eh *EventHistory) setupInputCapture() {
 		case 'd':
 			eh.showDetailModal()
 			return nil
+		case 'g':
+			eh.jumpToChildWorkflow()
+			return nil
 		}
 
 		// View-specific handlers
@@ -578,6 +581,7 @@ func (eh *EventHistory) Hints() []KeyHint {
 		{Key: "v", Description: "Cycle View"},
 		{Key: "1/2/3", Description: "List/Tree/Timeline"},
 		{Key: "d", Description: "Detail"},
+		{Key: "g", Description: "Go to Child"},
 		{Key: "y", Description: "Yank"},
 		{Key: "p", Description: "Preview"},
 		{Key: "r", Description: "Refresh"},
@@ -1105,4 +1109,48 @@ func highlightJSONValue(s string) string {
 	result = strings.ReplaceAll(result, "null", fmt.Sprintf("[%s]null[-]", theme.TagFgDim()))
 
 	return result
+}
+
+// jumpToChildWorkflow navigates to the child workflow if the selected event is a child workflow event.
+func (eh *EventHistory) jumpToChildWorkflow() {
+	var childWorkflowID, childRunID string
+
+	switch eh.viewMode {
+	case ViewModeList:
+		row := eh.table.SelectedRow()
+		if row >= 0 && row < len(eh.enhancedEvents) {
+			ev := eh.enhancedEvents[row]
+			childWorkflowID = ev.ChildWorkflowID
+			childRunID = ev.ChildRunID
+		}
+	case ViewModeTree:
+		node := eh.treeView.SelectedNode()
+		if node != nil && node.Type == temporal.GroupChildWorkflow {
+			// Find child workflow info from the node's events
+			for _, ev := range node.Events {
+				if ev.ChildWorkflowID != "" && ev.ChildRunID != "" {
+					childWorkflowID = ev.ChildWorkflowID
+					childRunID = ev.ChildRunID
+					break
+				}
+			}
+		}
+	case ViewModeTimeline:
+		lane := eh.timelineView.SelectedLane()
+		if lane != nil && lane.Node != nil && lane.Node.Type == temporal.GroupChildWorkflow {
+			// Find child workflow info from the node's events
+			for _, ev := range lane.Node.Events {
+				if ev.ChildWorkflowID != "" && ev.ChildRunID != "" {
+					childWorkflowID = ev.ChildWorkflowID
+					childRunID = ev.ChildRunID
+					break
+				}
+			}
+		}
+	}
+
+	// Navigate if we have valid child workflow info
+	if childWorkflowID != "" && childRunID != "" {
+		eh.app.NavigateToWorkflowDetail(childWorkflowID, childRunID)
+	}
 }

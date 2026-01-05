@@ -621,6 +621,9 @@ func (wd *WorkflowDetail) Start() {
 		case 'i':
 			wd.showIOModal()
 			return nil
+		case 'g':
+			wd.jumpToChildWorkflow()
+			return nil
 		}
 		return event
 	})
@@ -638,6 +641,7 @@ func (wd *WorkflowDetail) Hints() []KeyHint {
 		{Key: "i", Description: "Input/Output"},
 		{Key: "e", Description: "Event Graph"},
 		{Key: "d", Description: "Detail"},
+		{Key: "g", Description: "Go to Child"},
 		{Key: "y", Description: "Yank"},
 		{Key: "r", Description: "Refresh"},
 		{Key: "j/k", Description: "Navigate"},
@@ -1960,4 +1964,33 @@ func formatIOContent(label, content string) string {
 func (wd *WorkflowDetail) closeIOModal() {
 	wd.app.JigApp().Pages().DismissModal()
 	wd.app.JigApp().SetFocus(wd.eventTable)
+}
+
+// jumpToChildWorkflow navigates to the child workflow if the selected event is a child workflow event.
+func (wd *WorkflowDetail) jumpToChildWorkflow() {
+	row := wd.eventTable.SelectedRow()
+	if row < 0 || row >= len(wd.events) {
+		return
+	}
+
+	ev := wd.events[row]
+
+	// Check if this event has child workflow info
+	if ev.ChildWorkflowID == "" || ev.ChildRunID == "" {
+		return
+	}
+
+	// Navigate to the child workflow
+	wd.app.NavigateToWorkflowDetail(ev.ChildWorkflowID, ev.ChildRunID)
+}
+
+// hasChildWorkflowInfo returns true if the selected event is a child workflow event with navigation info.
+func (wd *WorkflowDetail) hasChildWorkflowInfo() bool {
+	row := wd.eventTable.SelectedRow()
+	if row < 0 || row >= len(wd.events) {
+		return false
+	}
+
+	ev := wd.events[row]
+	return ev.ChildWorkflowID != "" && ev.ChildRunID != ""
 }

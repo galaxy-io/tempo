@@ -842,6 +842,7 @@ func extractEnhancedEvent(event *historypb.HistoryEvent) EnhancedHistoryEvent {
 			he.InitiatedEventID = attrs.GetInitiatedEventId()
 			if attrs.GetWorkflowExecution() != nil {
 				he.ChildWorkflowID = attrs.GetWorkflowExecution().GetWorkflowId()
+				he.ChildRunID = attrs.GetWorkflowExecution().GetRunId()
 			}
 			if attrs.GetWorkflowType() != nil {
 				he.ChildWorkflowType = attrs.GetWorkflowType().GetName()
@@ -854,6 +855,7 @@ func extractEnhancedEvent(event *historypb.HistoryEvent) EnhancedHistoryEvent {
 			he.InitiatedEventID = attrs.GetInitiatedEventId()
 			if attrs.GetWorkflowExecution() != nil {
 				he.ChildWorkflowID = attrs.GetWorkflowExecution().GetWorkflowId()
+				he.ChildRunID = attrs.GetWorkflowExecution().GetRunId()
 			}
 			if attrs.GetResult() != nil {
 				he.Result = formatPayloads(attrs.GetResult())
@@ -866,6 +868,7 @@ func extractEnhancedEvent(event *historypb.HistoryEvent) EnhancedHistoryEvent {
 			he.InitiatedEventID = attrs.GetInitiatedEventId()
 			if attrs.GetWorkflowExecution() != nil {
 				he.ChildWorkflowID = attrs.GetWorkflowExecution().GetWorkflowId()
+				he.ChildRunID = attrs.GetWorkflowExecution().GetRunId()
 			}
 			if attrs.GetFailure() != nil {
 				he.Failure = attrs.GetFailure().GetMessage()
@@ -878,6 +881,7 @@ func extractEnhancedEvent(event *historypb.HistoryEvent) EnhancedHistoryEvent {
 			he.InitiatedEventID = attrs.GetInitiatedEventId()
 			if attrs.GetWorkflowExecution() != nil {
 				he.ChildWorkflowID = attrs.GetWorkflowExecution().GetWorkflowId()
+				he.ChildRunID = attrs.GetWorkflowExecution().GetRunId()
 			}
 		}
 
@@ -887,6 +891,7 @@ func extractEnhancedEvent(event *historypb.HistoryEvent) EnhancedHistoryEvent {
 			he.InitiatedEventID = attrs.GetInitiatedEventId()
 			if attrs.GetWorkflowExecution() != nil {
 				he.ChildWorkflowID = attrs.GetWorkflowExecution().GetWorkflowId()
+				he.ChildRunID = attrs.GetWorkflowExecution().GetRunId()
 			}
 		}
 
@@ -896,6 +901,7 @@ func extractEnhancedEvent(event *historypb.HistoryEvent) EnhancedHistoryEvent {
 			he.InitiatedEventID = attrs.GetInitiatedEventId()
 			if attrs.GetWorkflowExecution() != nil {
 				he.ChildWorkflowID = attrs.GetWorkflowExecution().GetWorkflowId()
+				he.ChildRunID = attrs.GetWorkflowExecution().GetRunId()
 			}
 		}
 
