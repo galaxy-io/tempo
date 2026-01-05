@@ -590,12 +590,16 @@ func (a *App) attemptReconnect(backoff time.Duration) {
 	err := provider.Reconnect(ctx)
 	cancel()
 
+	// Update reconnecting state before QueueUpdateDraw to avoid deadlock
+	if err == nil {
+		a.mu.Lock()
+		a.reconnecting = false
+		a.mu.Unlock()
+	}
+
 	a.app.QueueUpdateDraw(func() {
 		if err == nil {
 			a.setConnected(true)
-			a.mu.Lock()
-			a.reconnecting = false
-			a.mu.Unlock()
 		}
 	})
 }
@@ -1067,13 +1071,8 @@ func (a *App) SwitchProfile(name string) {
 		err := provider.ReconnectWithConfig(ctx, connConfig)
 		cancel()
 
-		a.app.QueueUpdateDraw(func() {
-			if err != nil {
-				a.setProfile(currentProfile + " (failed)")
-				a.setConnected(false)
-				return
-			}
-
+		// Update state before QueueUpdateDraw to avoid deadlock
+		if err == nil {
 			a.mu.Lock()
 			a.activeProfile = name
 			a.currentNS = connConfig.Namespace
@@ -1081,6 +1080,14 @@ func (a *App) SwitchProfile(name string) {
 
 			a.config.SetActiveProfile(name)
 			_ = a.config.Save()
+		}
+
+		a.app.QueueUpdateDraw(func() {
+			if err != nil {
+				a.setProfile(currentProfile + " (failed)")
+				a.setConnected(false)
+				return
+			}
 
 			a.setProfile(name)
 			a.setConnected(true)
