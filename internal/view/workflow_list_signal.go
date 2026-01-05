@@ -111,6 +111,18 @@ func (wl *WorkflowList) executeSignalWithStart(workflowID, workflowType, taskQue
 
 // startDiff initiates workflow diff view.
 func (wl *WorkflowList) startDiff() {
+	// Check if we have 2 selected workflows in selection mode
+	selected := wl.table.GetSelectedRows()
+	if len(selected) == 2 {
+		if selected[0] < len(wl.workflows) && selected[1] < len(wl.workflows) {
+			wfA := wl.workflows[selected[0]]
+			wfB := wl.workflows[selected[1]]
+			wl.app.NavigateToWorkflowDiff(&wfA, &wfB)
+			return
+		}
+	}
+
+	// Fall back to single workflow (left side only)
 	row := wl.table.SelectedRow()
 	if row < 0 || row >= len(wl.workflows) {
 		wl.app.NavigateToWorkflowDiffEmpty()
