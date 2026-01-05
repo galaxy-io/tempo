@@ -37,7 +37,7 @@ func NewNamespaceList(app *App) *NamespaceList {
 		app:         app,
 		namespaces:  []temporal.Namespace{},
 		autoRefresh: true,
-		stopRefresh: make(chan struct{}),
+		stopRefresh: make(chan struct{}, 1), // Buffered to ensure stop signal isn't lost
 	}
 	nl.setup()
 
@@ -248,6 +248,12 @@ func (nl *NamespaceList) toggleAutoRefresh() {
 }
 
 func (nl *NamespaceList) startAutoRefresh() {
+	// Drain any stale stop signal from previous stop
+	select {
+	case <-nl.stopRefresh:
+	default:
+	}
+
 	ticker := time.NewTicker(5 * time.Second)
 	nl.refreshTicker = ticker
 	go func() {

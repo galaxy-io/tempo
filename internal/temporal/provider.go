@@ -226,6 +226,7 @@ type EnhancedHistoryEvent struct {
 	Identity  string
 	Failure   string
 	Result    string
+	Input     string // Workflow/Activity input
 }
 
 // TaskQueueInfo represents task queue status information.

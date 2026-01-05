@@ -46,7 +46,7 @@ func NewWorkflowList(app *App, namespace string) *WorkflowList {
 		table:          components.NewTable(),
 		preview:        tview.NewTextView(),
 		workflows:      []temporal.Workflow{},
-		stopRefresh:    make(chan struct{}),
+		stopRefresh:    make(chan struct{}, 1), // Buffered to ensure stop signal isn't lost
 		searchHistory:  make([]string, 0, 50),
 		historyIndex:   -1,
 		maxHistorySize: 50,

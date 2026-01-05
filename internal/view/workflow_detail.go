@@ -137,41 +137,101 @@ func (wd *WorkflowDetail) loadData() {
 		return
 	}
 
+	namespace := wd.app.CurrentNamespace()
 	wd.setLoading(true)
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
 
-		workflow, err := provider.GetWorkflow(ctx, wd.app.CurrentNamespace(), wd.workflowID, wd.runID)
+	// Load workflow first, then events sequentially to avoid overwhelming the connection
+	go func() {
+		// Step 1: Load workflow metadata with retry
+		var workflow *temporal.Workflow
+		var err error
+		for attempt := 0; attempt < 3; attempt++ {
+			if attempt > 0 {
+				// Exponential backoff: 500ms, 1s, 2s
+				time.Sleep(time.Duration(250<<attempt) * time.Millisecond)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			workflow, err = provider.GetWorkflow(ctx, namespace, wd.workflowID, wd.runID)
+			cancel()
+			if err == nil {
+				break
+			}
+		}
+
+		if err != nil {
+			wd.app.JigApp().QueueUpdateDraw(func() {
+				wd.setLoading(false)
+				wd.showError(err)
+			})
+			return
+		}
+
+		wd.app.JigApp().QueueUpdateDraw(func() {
+			wd.workflow = workflow
+			wd.render()
+			wd.app.JigApp().Menu().SetHints(wd.Hints())
+		})
+
+		// Step 2: Load events after workflow succeeds (with retry)
+		var events []temporal.EnhancedHistoryEvent
+		for attempt := 0; attempt < 3; attempt++ {
+			if attempt > 0 {
+				time.Sleep(time.Duration(250<<attempt) * time.Millisecond)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			events, err = provider.GetEnhancedWorkflowHistory(ctx, namespace, wd.workflowID, wd.runID)
+			cancel()
+			if err == nil {
+				break
+			}
+		}
 
 		wd.app.JigApp().QueueUpdateDraw(func() {
 			wd.setLoading(false)
 			if err != nil {
-				wd.showError(err)
-				return
-			}
-			wd.workflow = workflow
-			wd.render()
-			// Update hints now that we have workflow status
-			wd.app.JigApp().Menu().SetHints(wd.Hints())
-		})
-	}()
-
-	// Load events in parallel
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-
-		events, err := provider.GetEnhancedWorkflowHistory(ctx, wd.app.CurrentNamespace(), wd.workflowID, wd.runID)
-
-		wd.app.JigApp().QueueUpdateDraw(func() {
-			if err != nil {
+				// Show workflow info even if events fail
 				return
 			}
 			wd.events = events
 			wd.populateEventTable()
+
+			// Extract input/output from events
+			if wd.workflow != nil {
+				wd.extractWorkflowIO()
+			}
 		})
 	}()
+}
+
+// extractWorkflowIO extracts input/output from the loaded events and updates the workflow.
+// This avoids a redundant API call since we already have the full event history.
+func (wd *WorkflowDetail) extractWorkflowIO() {
+	if wd.workflow == nil || len(wd.events) == 0 {
+		return
+	}
+
+	for _, event := range wd.events {
+		switch {
+		case strings.Contains(event.Type, "WorkflowExecutionStarted"):
+			if event.Input != "" {
+				wd.workflow.Input = event.Input
+			}
+		case strings.Contains(event.Type, "WorkflowExecutionCompleted"):
+			if event.Result != "" {
+				wd.workflow.Output = event.Result
+			}
+		case strings.Contains(event.Type, "WorkflowExecutionFailed"),
+			strings.Contains(event.Type, "WorkflowExecutionTerminated"),
+			strings.Contains(event.Type, "WorkflowExecutionTimedOut"):
+			if event.Failure != "" {
+				wd.workflow.Output = event.Failure
+			}
+		case strings.Contains(event.Type, "WorkflowExecutionCanceled"):
+			if event.Result != "" {
+				wd.workflow.Output = event.Result
+			}
+		}
+	}
 }
 
 func (wd *WorkflowDetail) loadMockData() {

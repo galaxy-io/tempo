@@ -303,11 +303,18 @@ func (wl *WorkflowList) toggleAutoRefresh() {
 }
 
 func (wl *WorkflowList) startAutoRefresh() {
+	// Drain any stale stop signal from previous stop
+	select {
+	case <-wl.stopRefresh:
+	default:
+	}
+
 	wl.refreshTicker = time.NewTicker(5 * time.Second)
+	ticker := wl.refreshTicker // Capture locally to avoid nil access after stop
 	go func() {
 		for {
 			select {
-			case <-wl.refreshTicker.C:
+			case <-ticker.C:
 				wl.app.JigApp().QueueUpdateDraw(func() {
 					wl.loadData()
 				})
