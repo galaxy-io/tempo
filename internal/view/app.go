@@ -6,6 +6,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/atterpac/jig/components"
@@ -33,17 +34,20 @@ type App struct {
 	statusBar     *layout.StatusBar
 	menu          *layout.Menu
 	toasts        *components.ToastManager
-	provider      temporal.Provider
 	namespaceList *NamespaceList
+
+	// Protected by mu - accessed from multiple goroutines
+	mu            sync.RWMutex
+	provider      temporal.Provider
 	currentNS     string
+	activeProfile string
+	reconnecting  bool
 
 	// Connection monitor
-	stopMonitor  chan struct{}
-	reconnecting bool
+	stopMonitor chan struct{}
 
 	// Profile management
-	config        *config.Config
-	activeProfile string
+	config *config.Config
 
 	// Dev mode
 	devMode bool
@@ -343,18 +347,27 @@ func (a *App) JigApp() *layout.App {
 }
 
 // Provider returns the Temporal provider.
+// Thread-safe: can be called from any goroutine.
 func (a *App) Provider() temporal.Provider {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	return a.provider
 }
 
 // SetNamespace sets the current namespace context.
+// Thread-safe: can be called from any goroutine.
 func (a *App) SetNamespace(ns string) {
+	a.mu.Lock()
 	a.currentNS = ns
+	a.mu.Unlock()
 	a.setNamespace(ns)
 }
 
 // CurrentNamespace returns the current namespace.
+// Thread-safe: can be called from any goroutine.
 func (a *App) CurrentNamespace() string {
+	a.mu.RLock()
+	defer a.mu.RUnlock()
 	return a.currentNS
 }
 
@@ -385,7 +398,7 @@ func (a *App) NavigateToTaskQueues() {
 
 // NavigateToSchedules pushes the schedule list view.
 func (a *App) NavigateToSchedules() {
-	sl := NewScheduleList(a, a.currentNS)
+	sl := NewScheduleList(a, a.CurrentNamespace())
 	a.app.Pages().Push(sl)
 }
 
@@ -397,20 +410,24 @@ func (a *App) NavigateToNamespaceDetail(namespace string) {
 
 // NavigateToWorkflowDiff pushes the workflow diff view.
 func (a *App) NavigateToWorkflowDiff(workflowA, workflowB *temporal.Workflow) {
-	wd := NewWorkflowDiffWithWorkflows(a, a.currentNS, workflowA, workflowB)
+	wd := NewWorkflowDiffWithWorkflows(a, a.CurrentNamespace(), workflowA, workflowB)
 	a.app.Pages().Push(wd)
 }
 
 // NavigateToWorkflowDiffEmpty pushes an empty workflow diff view.
 func (a *App) NavigateToWorkflowDiffEmpty() {
-	wd := NewWorkflowDiff(a, a.currentNS)
+	wd := NewWorkflowDiff(a, a.CurrentNamespace())
 	a.app.Pages().Push(wd)
 }
 
 // Run starts the application.
 func (a *App) Run() error {
 	// Start connection monitor if we have a provider
-	if a.provider != nil && a.stopMonitor != nil {
+	a.mu.RLock()
+	hasProvider := a.provider != nil
+	a.mu.RUnlock()
+
+	if hasProvider && a.stopMonitor != nil {
 		go a.connectionMonitor()
 	}
 
@@ -501,13 +518,18 @@ func (a *App) connectionMonitor() {
 		case <-a.stopMonitor:
 			return
 		case <-ticker.C:
-			if a.provider == nil {
+			// Get provider with lock
+			a.mu.RLock()
+			provider := a.provider
+			a.mu.RUnlock()
+
+			if provider == nil {
 				continue
 			}
 
 			// Check connection
 			ctx, cancel := context.WithTimeout(context.Background(), connectionCheckTimeout)
-			err := a.provider.CheckConnection(ctx)
+			err := provider.CheckConnection(ctx)
 			cancel()
 
 			if err != nil {
@@ -517,8 +539,14 @@ func (a *App) connectionMonitor() {
 				})
 
 				// Attempt reconnection with backoff
-				if !a.reconnecting {
+				a.mu.Lock()
+				shouldReconnect := !a.reconnecting
+				if shouldReconnect {
 					a.reconnecting = true
+				}
+				a.mu.Unlock()
+
+				if shouldReconnect {
 					go a.attemptReconnect(backoff)
 					backoff = backoff * 2
 					if backoff > reconnectMaxBackoff {
@@ -528,7 +556,9 @@ func (a *App) connectionMonitor() {
 			} else {
 				// Connection is good - reset backoff
 				backoff = reconnectInitialBackoff
+				a.mu.Lock()
 				a.reconnecting = false
+				a.mu.Unlock()
 
 				// Ensure UI shows connected
 				a.app.QueueUpdateDraw(func() {
@@ -547,14 +577,25 @@ func (a *App) attemptReconnect(backoff time.Duration) {
 	case <-time.After(backoff):
 	}
 
+	// Get provider with lock
+	a.mu.RLock()
+	provider := a.provider
+	a.mu.RUnlock()
+
+	if provider == nil {
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	err := a.provider.Reconnect(ctx)
+	err := provider.Reconnect(ctx)
 	cancel()
 
 	a.app.QueueUpdateDraw(func() {
 		if err == nil {
 			a.setConnected(true)
+			a.mu.Lock()
 			a.reconnecting = false
+			a.mu.Unlock()
 		}
 	})
 }
@@ -988,7 +1029,12 @@ func (a *App) deleteProfile(name string) {
 
 // SwitchProfile switches to a different connection profile.
 func (a *App) SwitchProfile(name string) {
-	if a.config == nil || a.provider == nil {
+	a.mu.RLock()
+	provider := a.provider
+	currentProfile := a.activeProfile
+	a.mu.RUnlock()
+
+	if a.config == nil || provider == nil {
 		return
 	}
 
@@ -1018,18 +1064,21 @@ func (a *App) SwitchProfile(name string) {
 
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		err := a.provider.ReconnectWithConfig(ctx, connConfig)
+		err := provider.ReconnectWithConfig(ctx, connConfig)
 		cancel()
 
 		a.app.QueueUpdateDraw(func() {
 			if err != nil {
-				a.setProfile(a.activeProfile + " (failed)")
+				a.setProfile(currentProfile + " (failed)")
 				a.setConnected(false)
 				return
 			}
 
+			a.mu.Lock()
 			a.activeProfile = name
 			a.currentNS = connConfig.Namespace
+			a.mu.Unlock()
+
 			a.config.SetActiveProfile(name)
 			_ = a.config.Save()
 
