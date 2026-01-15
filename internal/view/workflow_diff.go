@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/atterpac/jig/components"
+	"github.com/atterpac/jig/input"
 	"github.com/atterpac/jig/theme"
 	"github.com/atterpac/jig/validators"
 	"github.com/galaxy-io/tempo/internal/temporal"
@@ -174,24 +175,27 @@ func (wd *WorkflowDiff) Draw(screen tcell.Screen) {
 }
 
 func (wd *WorkflowDiff) inputHandler(event *tcell.EventKey) *tcell.EventKey {
-	switch event.Key() {
-	case tcell.KeyTab:
-		wd.toggleFocus()
+	bindings := input.NewKeyBindings().
+		On(tcell.KeyTab, func(e *tcell.EventKey) bool {
+			wd.toggleFocus()
+			return true
+		}).
+		OnRune('a', func(e *tcell.EventKey) bool {
+			wd.promptWorkflowInput(true)
+			return true
+		}).
+		OnRune('b', func(e *tcell.EventKey) bool {
+			wd.promptWorkflowInput(false)
+			return true
+		}).
+		OnRune('r', func(e *tcell.EventKey) bool {
+			wd.loadData()
+			return true
+		})
+
+	if bindings.Handle(event) {
 		return nil
 	}
-
-	switch event.Rune() {
-	case 'a':
-		wd.promptWorkflowInput(true)
-		return nil
-	case 'b':
-		wd.promptWorkflowInput(false)
-		return nil
-	case 'r':
-		wd.loadData()
-		return nil
-	}
-
 	return event
 }
 

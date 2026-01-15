@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/atterpac/jig/components"
+	"github.com/atterpac/jig/input"
 	"github.com/atterpac/jig/theme"
 	"github.com/atterpac/jig/validators"
 	"github.com/galaxy-io/tempo/internal/temporal"
@@ -585,44 +586,58 @@ func (wd *WorkflowDetail) Name() string {
 
 // Start is called when the view becomes active.
 func (wd *WorkflowDetail) Start() {
-	wd.eventTable.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		switch event.Rune() {
-		case 'r':
+	bindings := input.NewKeyBindings().
+		OnRune('r', func(e *tcell.EventKey) bool {
 			wd.loadData()
-			return nil
-		case 'e':
-			// Navigate to event history/graph view
+			return true
+		}).
+		OnRune('e', func(e *tcell.EventKey) bool {
 			wd.app.NavigateToEvents(wd.workflowID, wd.runID)
-			return nil
-		case 'y':
+			return true
+		}).
+		OnRune('y', func(e *tcell.EventKey) bool {
 			wd.yankEventData()
-			return nil
-		case 'd':
+			return true
+		}).
+		OnRune('d', func(e *tcell.EventKey) bool {
 			wd.showEventDetailModal()
-			return nil
-		case 'c':
+			return true
+		}).
+		OnRune('c', func(e *tcell.EventKey) bool {
 			wd.showCancelConfirm()
-			return nil
-		case 'X':
+			return true
+		}).
+		OnRune('X', func(e *tcell.EventKey) bool {
 			wd.showTerminateConfirm()
-			return nil
-		case 's':
+			return true
+		}).
+		OnRune('s', func(e *tcell.EventKey) bool {
 			wd.showSignalInput()
-			return nil
-		case 'D':
+			return true
+		}).
+		OnRune('D', func(e *tcell.EventKey) bool {
 			wd.showDeleteConfirm()
-			return nil
-		case 'R':
+			return true
+		}).
+		OnRune('R', func(e *tcell.EventKey) bool {
 			wd.showResetSelector()
-			return nil
-		case 'Q':
+			return true
+		}).
+		OnRune('Q', func(e *tcell.EventKey) bool {
 			wd.showQueryInput()
-			return nil
-		case 'i':
+			return true
+		}).
+		OnRune('i', func(e *tcell.EventKey) bool {
 			wd.showIOModal()
-			return nil
-		case 'g':
+			return true
+		}).
+		OnRune('g', func(e *tcell.EventKey) bool {
 			wd.jumpToChildWorkflow()
+			return true
+		})
+
+	wd.eventTable.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if bindings.Handle(event) {
 			return nil
 		}
 		return event

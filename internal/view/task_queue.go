@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/atterpac/jig/components"
+	"github.com/atterpac/jig/input"
 	"github.com/atterpac/jig/theme"
 	"github.com/galaxy-io/tempo/internal/temporal"
 	"github.com/gdamore/tcell/v2"
@@ -365,25 +366,35 @@ func (tq *TaskQueueView) Name() string {
 
 // Start is called when the view becomes active.
 func (tq *TaskQueueView) Start() {
-	tq.queueTable.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		switch {
-		case event.Key() == tcell.KeyTab:
+	queueBindings := input.NewKeyBindings().
+		On(tcell.KeyTab, func(e *tcell.EventKey) bool {
 			tq.app.JigApp().SetFocus(tq.pollerTable)
-			return nil
-		case event.Rune() == 'r':
+			return true
+		}).
+		OnRune('r', func(e *tcell.EventKey) bool {
 			tq.refreshCurrentQueue()
+			return true
+		})
+
+	pollerBindings := input.NewKeyBindings().
+		On(tcell.KeyTab, func(e *tcell.EventKey) bool {
+			tq.app.JigApp().SetFocus(tq.queueTable)
+			return true
+		}).
+		OnRune('r', func(e *tcell.EventKey) bool {
+			tq.refreshCurrentQueue()
+			return true
+		})
+
+	tq.queueTable.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if queueBindings.Handle(event) {
 			return nil
 		}
 		return event
 	})
 
 	tq.pollerTable.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		switch {
-		case event.Key() == tcell.KeyTab:
-			tq.app.JigApp().SetFocus(tq.queueTable)
-			return nil
-		case event.Rune() == 'r':
-			tq.refreshCurrentQueue()
+		if pollerBindings.Handle(event) {
 			return nil
 		}
 		return event

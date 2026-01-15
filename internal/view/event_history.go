@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/atterpac/jig/components"
+	"github.com/atterpac/jig/input"
 	"github.com/atterpac/jig/theme"
 	"github.com/galaxy-io/tempo/internal/temporal"
 	"github.com/gdamore/tcell/v2"
@@ -504,67 +505,90 @@ func (eh *EventHistory) setupInputCapture() {
 	eh.treeView.SetInputCapture(nil)
 	eh.timelineView.SetInputCapture(nil)
 
-	// Common input handler for all modes
-	inputHandler := func(event *tcell.EventKey) *tcell.EventKey {
-		switch event.Rune() {
-		case 'v':
+	// Common keybindings for all modes
+	bindings := input.NewKeyBindings().
+		OnRune('v', func(e *tcell.EventKey) bool {
 			eh.cycleViewMode()
-			return nil
-		case '1':
+			return true
+		}).
+		OnRune('1', func(e *tcell.EventKey) bool {
 			eh.setViewMode(ViewModeList)
-			return nil
-		case '2':
+			return true
+		}).
+		OnRune('2', func(e *tcell.EventKey) bool {
 			eh.setViewMode(ViewModeTree)
-			return nil
-		case '3':
+			return true
+		}).
+		OnRune('3', func(e *tcell.EventKey) bool {
 			eh.setViewMode(ViewModeTimeline)
-			return nil
-		case 'p':
+			return true
+		}).
+		OnRune('p', func(e *tcell.EventKey) bool {
 			eh.toggleSidePanel()
-			return nil
-		case 'r':
+			return true
+		}).
+		OnRune('r', func(e *tcell.EventKey) bool {
 			eh.loadData()
-			return nil
-		case 'y':
+			return true
+		}).
+		OnRune('y', func(e *tcell.EventKey) bool {
 			eh.yankEventData()
-			return nil
-		case 'd':
+			return true
+		}).
+		OnRune('d', func(e *tcell.EventKey) bool {
 			eh.showDetailModal()
-			return nil
-		case 'g':
+			return true
+		}).
+		OnRune('g', func(e *tcell.EventKey) bool {
 			eh.jumpToChildWorkflow()
+			return true
+		})
+
+	// View-specific bindings for tree mode
+	treeBindings := bindings.Clone().
+		OnRune('e', func(e *tcell.EventKey) bool {
+			eh.treeView.ExpandAll()
+			return true
+		}).
+		OnRune('c', func(e *tcell.EventKey) bool {
+			eh.treeView.CollapseAll()
+			return true
+		}).
+		OnRune('f', func(e *tcell.EventKey) bool {
+			eh.treeView.JumpToFailed()
+			return true
+		})
+
+	// Create input handlers
+	listHandler := func(event *tcell.EventKey) *tcell.EventKey {
+		if bindings.Handle(event) {
 			return nil
 		}
+		return event
+	}
 
-		// View-specific handlers
-		switch eh.viewMode {
-		case ViewModeTree:
-			switch event.Rune() {
-			case 'e':
-				eh.treeView.ExpandAll()
-				return nil
-			case 'c':
-				eh.treeView.CollapseAll()
-				return nil
-			case 'f':
-				eh.treeView.JumpToFailed()
-				return nil
-			}
-		case ViewModeTimeline:
-			// Timeline handles its own input via InputHandler
+	treeHandler := func(event *tcell.EventKey) *tcell.EventKey {
+		if treeBindings.Handle(event) {
+			return nil
 		}
+		return event
+	}
 
+	timelineHandler := func(event *tcell.EventKey) *tcell.EventKey {
+		if bindings.Handle(event) {
+			return nil
+		}
 		return event
 	}
 
 	// Apply input capture to the appropriate component
 	switch eh.viewMode {
 	case ViewModeList:
-		eh.table.SetInputCapture(inputHandler)
+		eh.table.SetInputCapture(listHandler)
 	case ViewModeTree:
-		eh.treeView.SetInputCapture(inputHandler)
+		eh.treeView.SetInputCapture(treeHandler)
 	case ViewModeTimeline:
-		eh.timelineView.SetInputCapture(inputHandler)
+		eh.timelineView.SetInputCapture(timelineHandler)
 	}
 }
 

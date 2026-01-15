@@ -8,6 +8,7 @@ import (
 
 	"github.com/atterpac/jig/async"
 	"github.com/atterpac/jig/components"
+	"github.com/atterpac/jig/input"
 	"github.com/atterpac/jig/theme"
 	"github.com/atterpac/jig/validators"
 	"github.com/galaxy-io/tempo/internal/temporal"
@@ -288,49 +289,62 @@ func (nl *NamespaceList) Name() string {
 
 // Start is called when the view becomes active.
 func (nl *NamespaceList) Start() {
-	nl.table.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		switch event.Rune() {
-		case 'q':
+	bindings := input.NewKeyBindings().
+		OnRune('q', func(e *tcell.EventKey) bool {
 			nl.app.Stop()
-			return nil
-		case 'a':
+			return true
+		}).
+		OnRune('a', func(e *tcell.EventKey) bool {
 			nl.toggleAutoRefresh()
-			return nil
-		case 'r':
+			return true
+		}).
+		OnRune('r', func(e *tcell.EventKey) bool {
 			nl.loadData()
-			return nil
-		case 'p':
+			return true
+		}).
+		OnRune('p', func(e *tcell.EventKey) bool {
 			nl.togglePreview()
-			return nil
-		case 'i':
+			return true
+		}).
+		OnRune('i', func(e *tcell.EventKey) bool {
 			ns := nl.getSelectedNamespace()
 			if ns != nil {
 				nl.app.NavigateToNamespaceDetail(ns.Name)
 			}
-			return nil
-		case 'n':
+			return true
+		}).
+		OnRune('n', func(e *tcell.EventKey) bool {
 			nl.showCreateNamespaceForm()
-			return nil
-		case 'e':
+			return true
+		}).
+		OnRune('e', func(e *tcell.EventKey) bool {
 			nl.showEditNamespaceForm()
-			return nil
-		case 'D':
+			return true
+		}).
+		OnRune('D', func(e *tcell.EventKey) bool {
 			ns := nl.getSelectedNamespace()
 			if ns != nil && ns.State != "Deprecated" {
 				nl.showDeprecateConfirm()
 			}
-			return nil
-		case 'X':
+			return true
+		}).
+		OnRune('X', func(e *tcell.EventKey) bool {
 			ns := nl.getSelectedNamespace()
 			if ns != nil && ns.State == "Deprecated" {
 				nl.showDeleteConfirm()
 			}
-			return nil
-		case 'S':
+			return true
+		}).
+		OnRune('S', func(e *tcell.EventKey) bool {
 			ns := nl.getSelectedNamespace()
 			if ns != nil {
 				nl.showSignalWithStart(ns.Name)
 			}
+			return true
+		})
+
+	nl.table.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if bindings.Handle(event) {
 			return nil
 		}
 		return event

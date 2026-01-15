@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/atterpac/jig/components"
+	"github.com/atterpac/jig/input"
 	"github.com/atterpac/jig/theme"
 	"github.com/galaxy-io/tempo/internal/temporal"
 	"github.com/gdamore/tcell/v2"
@@ -160,84 +161,112 @@ func (wl *WorkflowList) Name() string {
 
 // Start is called when the view becomes active.
 func (wl *WorkflowList) Start() {
-	wl.table.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		if event.Key() == tcell.KeyRune && event.Rune() == ' ' && wl.selectionMode {
-			wl.table.ToggleSelection()
-			wl.updateSelectionPreview()
-			return nil
-		}
-
-		switch event.Rune() {
-		case '/':
+	bindings := input.NewKeyBindings().
+		OnRune(' ', func(e *tcell.EventKey) bool {
+			if wl.selectionMode {
+				wl.table.ToggleSelection()
+				wl.updateSelectionPreview()
+				return true
+			}
+			return false
+		}).
+		OnRune('/', func(e *tcell.EventKey) bool {
 			wl.showFilter()
-			return nil
-		case 'F':
+			return true
+		}).
+		OnRune('F', func(e *tcell.EventKey) bool {
 			wl.showVisibilityQuery()
-			return nil
-		case 'f':
+			return true
+		}).
+		OnRune('f', func(e *tcell.EventKey) bool {
 			wl.showQueryTemplates()
-			return nil
-		case 'D':
+			return true
+		}).
+		OnRune('D', func(e *tcell.EventKey) bool {
 			wl.showDateRangePicker()
-			return nil
-		case 't':
+			return true
+		}).
+		OnRune('t', func(e *tcell.EventKey) bool {
 			wl.app.NavigateToTaskQueues()
-			return nil
-		case 's':
+			return true
+		}).
+		OnRune('s', func(e *tcell.EventKey) bool {
 			wl.app.NavigateToSchedules()
-			return nil
-		case 'a':
+			return true
+		}).
+		OnRune('a', func(e *tcell.EventKey) bool {
 			wl.toggleAutoRefresh()
-			return nil
-		case 'r':
+			return true
+		}).
+		OnRune('r', func(e *tcell.EventKey) bool {
 			wl.loadData()
-			return nil
-		case 'p':
+			return true
+		}).
+		OnRune('p', func(e *tcell.EventKey) bool {
 			wl.togglePreview()
-			return nil
-		case 'y':
+			return true
+		}).
+		OnRune('y', func(e *tcell.EventKey) bool {
 			wl.copyWorkflowID()
-			return nil
-		case 'v':
+			return true
+		}).
+		OnRune('v', func(e *tcell.EventKey) bool {
 			wl.toggleSelectionMode()
-			return nil
-		case 'c':
+			return true
+		}).
+		OnRune('c', func(e *tcell.EventKey) bool {
 			if wl.selectionMode && len(wl.table.GetSelectedRows()) > 0 {
 				wl.showBatchCancelConfirm()
-				return nil
+				return true
 			}
-		case 'X':
+			return false
+		}).
+		OnRune('X', func(e *tcell.EventKey) bool {
 			if wl.selectionMode && len(wl.table.GetSelectedRows()) > 0 {
 				wl.showBatchTerminateConfirm()
-				return nil
+				return true
 			}
-		case 'C':
+			return false
+		}).
+		OnRune('C', func(e *tcell.EventKey) bool {
 			if wl.visibilityQuery != "" {
 				wl.clearVisibilityQuery()
-				return nil
+				return true
 			}
-		case 'L':
+			return false
+		}).
+		OnRune('L', func(e *tcell.EventKey) bool {
 			wl.showSavedFilters()
-			return nil
-		case 'S':
+			return true
+		}).
+		OnRune('S', func(e *tcell.EventKey) bool {
 			if wl.visibilityQuery != "" {
 				wl.showSaveFilter()
-				return nil
+				return true
 			}
-		case 'W':
+			return false
+		}).
+		OnRune('W', func(e *tcell.EventKey) bool {
 			wl.showSignalWithStart()
-			return nil
-		case 'd':
+			return true
+		}).
+		OnRune('d', func(e *tcell.EventKey) bool {
 			wl.startDiff()
+			return true
+		}).
+		OnCtrlRune('a', func(e *tcell.EventKey) bool {
+			if wl.selectionMode {
+				wl.table.SelectAll()
+				wl.updateSelectionPreview()
+				return true
+			}
+			return false
+		})
+
+	wl.table.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if bindings.Handle(event) {
 			return nil
 		}
-
-		if event.Key() == tcell.KeyCtrlA && wl.selectionMode {
-			wl.table.SelectAll()
-			wl.updateSelectionPreview()
-			return nil
-		}
-
 		return event
 	})
 

@@ -7,6 +7,7 @@ import (
 
 	"github.com/atterpac/jig/async"
 	"github.com/atterpac/jig/components"
+	"github.com/atterpac/jig/input"
 	"github.com/atterpac/jig/theme"
 	"github.com/atterpac/jig/validators"
 	"github.com/galaxy-io/tempo/internal/temporal"
@@ -584,22 +585,30 @@ func (sl *ScheduleList) Name() string {
 
 // Start is called when the view becomes active.
 func (sl *ScheduleList) Start() {
-	sl.table.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		switch event.Rune() {
-		case 'r':
+	bindings := input.NewKeyBindings().
+		OnRune('r', func(e *tcell.EventKey) bool {
 			sl.loadData()
-			return nil
-		case 'p':
+			return true
+		}).
+		OnRune('p', func(e *tcell.EventKey) bool {
 			sl.togglePreview()
-			return nil
-		case 'P': // Pause/Unpause toggle
+			return true
+		}).
+		OnRune('P', func(e *tcell.EventKey) bool {
 			sl.showPauseConfirm()
-			return nil
-		case 't': // Trigger
+			return true
+		}).
+		OnRune('t', func(e *tcell.EventKey) bool {
 			sl.showTriggerConfirm()
-			return nil
-		case 'D': // Delete
+			return true
+		}).
+		OnRune('D', func(e *tcell.EventKey) bool {
 			sl.showDeleteConfirm()
+			return true
+		})
+
+	sl.table.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if bindings.Handle(event) {
 			return nil
 		}
 		return event
