@@ -3,6 +3,7 @@ package view
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/atterpac/jig/async"
@@ -18,12 +19,13 @@ import (
 // ScheduleList displays a list of schedules with actions.
 type ScheduleList struct {
 	*components.MasterDetailView
-	app       *App
-	namespace string
-	table     *components.Table
-	preview   *tview.TextView
-	schedules []temporal.Schedule
-	loading   bool
+	app          *App
+	namespace    string
+	table        *components.Table
+	preview      *tview.TextView
+	allSchedules []temporal.Schedule // Full unfiltered list
+	schedules    []temporal.Schedule // Filtered list for display
+	loading      bool
 }
 
 // NewScheduleList creates a new schedule list view.
@@ -61,7 +63,17 @@ func (sl *ScheduleList) setup() {
 		SetMasterContent(sl.table).
 		SetDetailContent(sl.preview).
 		SetRatio(0.6).
-		ConfigureEmpty(theme.IconInfo, "No Selection", "Select a schedule to view details")
+		ConfigureEmpty(theme.IconInfo, "No Selection", "Select a schedule to view details").
+		EnableSearch(func(current string, cb components.SearchCallbacks) {
+			sl.app.ShowFilterMode(current, FilterModeCallbacks{
+				OnChange: cb.OnChange,
+				OnSubmit: cb.OnSubmit,
+				OnCancel: cb.OnCancel,
+			})
+		}).
+		SetOnSearch(func(query string) {
+			sl.applyFilter(query)
+		})
 
 	// Selection change handler to update preview
 	sl.table.SetSelectionChangedFunc(func(row, col int) {
@@ -151,6 +163,23 @@ func (sl *ScheduleList) updatePreview(s temporal.Schedule) {
 	sl.preview.SetText(text)
 }
 
+func (sl *ScheduleList) applyFilter(query string) {
+	if query == "" {
+		sl.schedules = sl.allSchedules
+	} else {
+		sl.schedules = nil
+		q := strings.ToLower(query)
+		for _, s := range sl.allSchedules {
+			if strings.Contains(strings.ToLower(s.ID), q) ||
+				strings.Contains(strings.ToLower(s.WorkflowType), q) ||
+				strings.Contains(strings.ToLower(s.Spec), q) {
+				sl.schedules = append(sl.schedules, s)
+			}
+		}
+	}
+	sl.populateTable()
+}
+
 func (sl *ScheduleList) loadData() {
 	provider := sl.app.Provider()
 	if provider == nil {
@@ -164,8 +193,8 @@ func (sl *ScheduleList) loadData() {
 	async.NewLoader[[]temporal.Schedule]().
 		WithTimeout(10 * time.Second).
 		OnSuccess(func(schedules []temporal.Schedule) {
-			sl.schedules = schedules
-			sl.populateTable()
+			sl.allSchedules = schedules
+			sl.applyFilter(sl.MasterDetailView.GetSearchText())
 		}).
 		OnError(func(err error) {
 			sl.showError(err)
@@ -183,7 +212,7 @@ func (sl *ScheduleList) loadMockData() {
 	now := time.Now()
 	nextRun := now.Add(5 * time.Minute)
 	lastRun := now.Add(-1 * time.Hour)
-	sl.schedules = []temporal.Schedule{
+	sl.allSchedules = []temporal.Schedule{
 		{
 			ID:           "daily-report",
 			WorkflowType: "ReportWorkflow",
@@ -215,7 +244,7 @@ func (sl *ScheduleList) loadMockData() {
 			Notes:        "Weekly backups (paused)",
 		},
 	}
-	sl.populateTable()
+	sl.applyFilter(sl.MasterDetailView.GetSearchText())
 }
 
 func (sl *ScheduleList) populateTable() {
@@ -590,6 +619,10 @@ func (sl *ScheduleList) Start() {
 			sl.loadData()
 			return true
 		}).
+		OnRune('/', func(e *tcell.EventKey) bool {
+			sl.MasterDetailView.ShowSearch()
+			return true
+		}).
 		OnRune('p', func(e *tcell.EventKey) bool {
 			sl.togglePreview()
 			return true
@@ -624,6 +657,7 @@ func (sl *ScheduleList) Stop() {
 // Hints returns keybinding hints for this view.
 func (sl *ScheduleList) Hints() []KeyHint {
 	hints := []KeyHint{
+		{Key: "/", Description: "Search"},
 		{Key: "r", Description: "Refresh"},
 		{Key: "j/k", Description: "Navigate"},
 		{Key: "p", Description: "Preview"},

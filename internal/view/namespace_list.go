@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/atterpac/jig/async"
@@ -23,7 +24,8 @@ type NamespaceList struct {
 	preview       *tview.TextView
 	emptyState    *components.EmptyState
 	app           *App
-	namespaces    []temporal.Namespace
+	allNamespaces []temporal.Namespace // Full unfiltered list
+	namespaces    []temporal.Namespace // Filtered list for display
 	loading       bool
 	autoRefresh   bool
 	refreshTicker *time.Ticker
@@ -72,7 +74,17 @@ func (nl *NamespaceList) setup() {
 		SetMasterContent(nl.table).
 		SetDetailContent(nl.preview).
 		SetRatio(0.6).
-		ConfigureEmpty(theme.IconInfo, "No Selection", "Select a namespace to view details")
+		ConfigureEmpty(theme.IconInfo, "No Selection", "Select a namespace to view details").
+		EnableSearch(func(current string, cb components.SearchCallbacks) {
+			nl.app.ShowFilterMode(current, FilterModeCallbacks{
+				OnChange: cb.OnChange,
+				OnSubmit: cb.OnSubmit,
+				OnCancel: cb.OnCancel,
+			})
+		}).
+		SetOnSearch(func(query string) {
+			nl.applyFilter(query)
+		})
 
 	// Selection change handler to update preview and hints
 	nl.table.SetSelectionChangedFunc(func(row, col int) {
@@ -168,8 +180,14 @@ func (nl *NamespaceList) loadData() {
 	async.NewLoader[[]temporal.Namespace]().
 		WithTimeout(10 * time.Second).
 		OnSuccess(func(namespaces []temporal.Namespace) {
-			nl.namespaces = namespaces
-			nl.populateTable()
+			nl.allNamespaces = namespaces
+			// Re-apply current filter
+			if nl.GetSearchText() != "" {
+				nl.applyFilter(nl.GetSearchText())
+			} else {
+				nl.namespaces = namespaces
+				nl.populateTable()
+			}
 		}).
 		OnError(func(err error) {
 			nl.showError(err)
@@ -183,13 +201,14 @@ func (nl *NamespaceList) loadData() {
 }
 
 func (nl *NamespaceList) loadMockData() {
-	nl.namespaces = []temporal.Namespace{
+	nl.allNamespaces = []temporal.Namespace{
 		{Name: "default", State: "Active", RetentionPeriod: "7 days"},
 		{Name: "production", State: "Active", RetentionPeriod: "30 days"},
 		{Name: "staging", State: "Active", RetentionPeriod: "3 days"},
 		{Name: "development", State: "Active", RetentionPeriod: "1 day"},
 		{Name: "archived", State: "Deprecated", RetentionPeriod: "90 days"},
 	}
+	nl.namespaces = nl.allNamespaces
 	nl.populateTable()
 }
 
@@ -237,6 +256,23 @@ func (nl *NamespaceList) showError(err error) {
 		err.Error(),
 		"",
 	)
+}
+
+func (nl *NamespaceList) applyFilter(query string) {
+	if query == "" {
+		nl.namespaces = nl.allNamespaces
+	} else {
+		nl.namespaces = nil
+		q := strings.ToLower(query)
+		for _, ns := range nl.allNamespaces {
+			if strings.Contains(strings.ToLower(ns.Name), q) ||
+				strings.Contains(strings.ToLower(ns.State), q) ||
+				strings.Contains(strings.ToLower(ns.Description), q) {
+				nl.namespaces = append(nl.namespaces, ns)
+			}
+		}
+	}
+	nl.populateTable()
 }
 
 func (nl *NamespaceList) toggleAutoRefresh() {
@@ -290,6 +326,10 @@ func (nl *NamespaceList) Name() string {
 // Start is called when the view becomes active.
 func (nl *NamespaceList) Start() {
 	bindings := input.NewKeyBindings().
+		OnRune('/', func(e *tcell.EventKey) bool {
+			nl.ShowSearch()
+			return true
+		}).
 		OnRune('q', func(e *tcell.EventKey) bool {
 			nl.app.Stop()
 			return true
@@ -364,6 +404,7 @@ func (nl *NamespaceList) Stop() {
 // Hints returns keybinding hints for this view.
 func (nl *NamespaceList) Hints() []KeyHint {
 	hints := []KeyHint{
+		{Key: "/", Description: "Search"},
 		{Key: "enter", Description: "Workflows"},
 		{Key: "i", Description: "Info"},
 		{Key: "n", Description: "Create"},
