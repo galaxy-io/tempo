@@ -99,9 +99,10 @@ func (m *SplashModal) InputHandler() func(*tcell.EventKey, func(tview.Primitive)
 // HelpModal displays help information with view-specific keybindings.
 type HelpModal struct {
 	*components.Modal
-	viewName  string
-	viewHints []KeyHint
-	content   *tview.TextView
+	viewName    string
+	viewHints   []KeyHint
+	content     *tview.TextView
+	closeFunc   func() // Direct close callback
 }
 
 func NewHelpModal() *HelpModal {
@@ -121,6 +122,28 @@ func (m *HelpModal) setup() {
 	m.content = tview.NewTextView().SetDynamicColors(true)
 	m.content.SetBackgroundColor(theme.Bg())
 	m.content.SetScrollable(true)
+
+	// Only handle scrolling - jig App handles Escape automatically for modals
+	m.content.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		switch event.Key() {
+		case tcell.KeyRune:
+			switch event.Rune() {
+			case 'j':
+				row, col := m.content.GetScrollOffset()
+				m.content.ScrollTo(row+1, col)
+				return nil
+			case 'k':
+				row, col := m.content.GetScrollOffset()
+				if row > 0 {
+					m.content.ScrollTo(row-1, col)
+				}
+				return nil
+			}
+		}
+		// Let all other keys (including Escape) bubble up to jig's auto-dismiss handler
+		return event
+	})
+
 	m.Modal.SetContent(m.content)
 	m.Modal.SetHints([]components.KeyHint{
 		{Key: "j/k", Description: "Scroll"},
@@ -186,8 +209,9 @@ func (m *HelpModal) updateContent() {
 }
 
 func (m *HelpModal) SetOnClose(fn func()) {
+	m.closeFunc = fn
 	m.Modal.SetOnClose(fn)
-	m.Modal.SetOnCancel(fn)
+	// Don't set onCancel - jig's auto-dismiss handles Escape via DismissOnEsc behavior
 }
 
 // ThemeSelectorModal allows selecting themes.

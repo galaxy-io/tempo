@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/atterpac/jig/components"
+	"github.com/atterpac/jig/input"
 	"github.com/atterpac/jig/theme"
 	"github.com/atterpac/jig/validators"
 	"github.com/galaxy-io/tempo/internal/temporal"
@@ -265,16 +266,22 @@ func (nd *NamespaceDetail) Name() string {
 
 // Start is called when the view becomes active.
 func (nd *NamespaceDetail) Start() {
-	nd.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		switch event.Rune() {
-		case 'r':
+	bindings := input.NewKeyBindings().
+		OnRune('r', func(e *tcell.EventKey) bool {
 			nd.loadData()
-			return nil
-		case 'e':
+			return true
+		}).
+		OnRune('e', func(e *tcell.EventKey) bool {
 			nd.showEditForm()
-			return nil
-		case 'D':
+			return true
+		}).
+		OnRune('D', func(e *tcell.EventKey) bool {
 			nd.showDeprecateConfirm()
+			return true
+		})
+
+	nd.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if bindings.Handle(event) {
 			return nil
 		}
 		return event

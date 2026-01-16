@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/atterpac/jig/components"
+	"github.com/atterpac/jig/input"
 	"github.com/atterpac/jig/theme"
 	"github.com/galaxy-io/tempo/internal/temporal"
 	"github.com/gdamore/tcell/v2"
@@ -47,9 +48,10 @@ type EventHistory struct {
 	sidePanel *tview.TextView
 
 	// Data
-	events         []temporal.HistoryEvent
-	enhancedEvents []temporal.EnhancedHistoryEvent
-	loading        bool
+	events            []temporal.HistoryEvent
+	allEnhancedEvents []temporal.EnhancedHistoryEvent // Full unfiltered list
+	enhancedEvents    []temporal.EnhancedHistoryEvent // Filtered list for display
+	loading           bool
 }
 
 // NewEventHistory creates a new event history view.
@@ -90,7 +92,17 @@ func (eh *EventHistory) setup() {
 		SetMasterContent(eh.treeView).
 		SetDetailContent(eh.sidePanel).
 		SetRatio(0.6).
-		ConfigureEmpty(theme.IconInfo, "No Event", "Select an event to view details")
+		ConfigureEmpty(theme.IconInfo, "No Event", "Select an event to view details").
+		EnableSearch(func(current string, cb components.SearchCallbacks) {
+			eh.app.ShowFilterMode(current, FilterModeCallbacks{
+				OnChange: cb.OnChange,
+				OnSubmit: cb.OnSubmit,
+				OnCancel: cb.OnCancel,
+			})
+		}).
+		SetOnSearch(func(query string) {
+			eh.applyFilter(query)
+		})
 
 	// List view selection handlers
 	eh.table.SetSelectionChangedFunc(func(row, col int) {
@@ -192,6 +204,41 @@ func (eh *EventHistory) setLoading(loading bool) {
 	eh.loading = loading
 }
 
+func (eh *EventHistory) applyFilter(query string) {
+	if query == "" {
+		eh.enhancedEvents = eh.allEnhancedEvents
+	} else {
+		eh.enhancedEvents = nil
+		q := strings.ToLower(query)
+		for _, ev := range eh.allEnhancedEvents {
+			if strings.Contains(strings.ToLower(ev.Type), q) ||
+				strings.Contains(strings.ToLower(ev.ActivityType), q) ||
+				strings.Contains(strings.ToLower(ev.TimerID), q) ||
+				strings.Contains(strings.ToLower(ev.ChildWorkflowType), q) ||
+				strings.Contains(strings.ToLower(ev.Details), q) {
+				eh.enhancedEvents = append(eh.enhancedEvents, ev)
+			}
+		}
+	}
+
+	// Convert to basic events for list view
+	eh.events = make([]temporal.HistoryEvent, len(eh.enhancedEvents))
+	for i, ev := range eh.enhancedEvents {
+		eh.events[i] = temporal.HistoryEvent{
+			ID:      ev.ID,
+			Type:    ev.Type,
+			Time:    ev.Time,
+			Details: ev.Details,
+		}
+	}
+
+	// Rebuild tree nodes from filtered events
+	eh.treeNodes = temporal.BuildEventTree(eh.enhancedEvents)
+
+	// Refresh current view
+	eh.refreshCurrentView()
+}
+
 // RefreshTheme updates all component colors after a theme change.
 func (eh *EventHistory) RefreshTheme() {
 	bg := theme.Bg()
@@ -230,24 +277,8 @@ func (eh *EventHistory) loadData() {
 				return
 			}
 
-			eh.enhancedEvents = enhancedEvents
-
-			// Convert to basic events for list view
-			eh.events = make([]temporal.HistoryEvent, len(enhancedEvents))
-			for i, ev := range enhancedEvents {
-				eh.events[i] = temporal.HistoryEvent{
-					ID:      ev.ID,
-					Type:    ev.Type,
-					Time:    ev.Time,
-					Details: ev.Details,
-				}
-			}
-
-			// Build tree nodes
-			eh.treeNodes = temporal.BuildEventTree(enhancedEvents)
-
-			// Populate current view
-			eh.refreshCurrentView()
+			eh.allEnhancedEvents = enhancedEvents
+			eh.applyFilter(eh.MasterDetailView.GetSearchText())
 		})
 	}()
 }
@@ -256,7 +287,7 @@ func (eh *EventHistory) loadMockData() {
 	now := time.Now()
 
 	// Create mock enhanced events
-	eh.enhancedEvents = []temporal.EnhancedHistoryEvent{
+	eh.allEnhancedEvents = []temporal.EnhancedHistoryEvent{
 		{ID: 1, Type: "WorkflowExecutionStarted", Time: now.Add(-5 * time.Minute), Details: "WorkflowType: MockWorkflow, TaskQueue: mock-tasks", TaskQueue: "mock-tasks"},
 		{ID: 2, Type: "WorkflowTaskScheduled", Time: now.Add(-5 * time.Minute), Details: "TaskQueue: mock-tasks", TaskQueue: "mock-tasks"},
 		{ID: 3, Type: "WorkflowTaskStarted", Time: now.Add(-5 * time.Minute), Details: "Identity: worker-1@host", ScheduledEventID: 2, Identity: "worker-1@host"},
@@ -273,22 +304,7 @@ func (eh *EventHistory) loadMockData() {
 		{ID: 14, Type: "TimerFired", Time: now.Add(-30 * time.Second), Details: "TimerId: wait-30s, StartedEventId: 13", TimerID: "wait-30s", StartedEventID: 13},
 	}
 
-	// Convert to basic events
-	eh.events = make([]temporal.HistoryEvent, len(eh.enhancedEvents))
-	for i, ev := range eh.enhancedEvents {
-		eh.events[i] = temporal.HistoryEvent{
-			ID:      ev.ID,
-			Type:    ev.Type,
-			Time:    ev.Time,
-			Details: ev.Details,
-		}
-	}
-
-	// Build tree nodes
-	eh.treeNodes = temporal.BuildEventTree(eh.enhancedEvents)
-
-	// Populate current view
-	eh.refreshCurrentView()
+	eh.applyFilter(eh.MasterDetailView.GetSearchText())
 }
 
 func (eh *EventHistory) populateTable() {
@@ -504,67 +520,94 @@ func (eh *EventHistory) setupInputCapture() {
 	eh.treeView.SetInputCapture(nil)
 	eh.timelineView.SetInputCapture(nil)
 
-	// Common input handler for all modes
-	inputHandler := func(event *tcell.EventKey) *tcell.EventKey {
-		switch event.Rune() {
-		case 'v':
+	// Common keybindings for all modes
+	bindings := input.NewKeyBindings().
+		OnRune('v', func(e *tcell.EventKey) bool {
 			eh.cycleViewMode()
-			return nil
-		case '1':
+			return true
+		}).
+		OnRune('/', func(e *tcell.EventKey) bool {
+			eh.MasterDetailView.ShowSearch()
+			return true
+		}).
+		OnRune('1', func(e *tcell.EventKey) bool {
 			eh.setViewMode(ViewModeList)
-			return nil
-		case '2':
+			return true
+		}).
+		OnRune('2', func(e *tcell.EventKey) bool {
 			eh.setViewMode(ViewModeTree)
-			return nil
-		case '3':
+			return true
+		}).
+		OnRune('3', func(e *tcell.EventKey) bool {
 			eh.setViewMode(ViewModeTimeline)
-			return nil
-		case 'p':
+			return true
+		}).
+		OnRune('p', func(e *tcell.EventKey) bool {
 			eh.toggleSidePanel()
-			return nil
-		case 'r':
+			return true
+		}).
+		OnRune('r', func(e *tcell.EventKey) bool {
 			eh.loadData()
-			return nil
-		case 'y':
+			return true
+		}).
+		OnRune('y', func(e *tcell.EventKey) bool {
 			eh.yankEventData()
-			return nil
-		case 'd':
+			return true
+		}).
+		OnRune('d', func(e *tcell.EventKey) bool {
 			eh.showDetailModal()
-			return nil
-		case 'g':
+			return true
+		}).
+		OnRune('g', func(e *tcell.EventKey) bool {
 			eh.jumpToChildWorkflow()
+			return true
+		})
+
+	// View-specific bindings for tree mode
+	treeBindings := bindings.Clone().
+		OnRune('e', func(e *tcell.EventKey) bool {
+			eh.treeView.ExpandAll()
+			return true
+		}).
+		OnRune('c', func(e *tcell.EventKey) bool {
+			eh.treeView.CollapseAll()
+			return true
+		}).
+		OnRune('f', func(e *tcell.EventKey) bool {
+			eh.treeView.JumpToFailed()
+			return true
+		})
+
+	// Create input handlers
+	listHandler := func(event *tcell.EventKey) *tcell.EventKey {
+		if bindings.Handle(event) {
 			return nil
 		}
+		return event
+	}
 
-		// View-specific handlers
-		switch eh.viewMode {
-		case ViewModeTree:
-			switch event.Rune() {
-			case 'e':
-				eh.treeView.ExpandAll()
-				return nil
-			case 'c':
-				eh.treeView.CollapseAll()
-				return nil
-			case 'f':
-				eh.treeView.JumpToFailed()
-				return nil
-			}
-		case ViewModeTimeline:
-			// Timeline handles its own input via InputHandler
+	treeHandler := func(event *tcell.EventKey) *tcell.EventKey {
+		if treeBindings.Handle(event) {
+			return nil
 		}
+		return event
+	}
 
+	timelineHandler := func(event *tcell.EventKey) *tcell.EventKey {
+		if bindings.Handle(event) {
+			return nil
+		}
 		return event
 	}
 
 	// Apply input capture to the appropriate component
 	switch eh.viewMode {
 	case ViewModeList:
-		eh.table.SetInputCapture(inputHandler)
+		eh.table.SetInputCapture(listHandler)
 	case ViewModeTree:
-		eh.treeView.SetInputCapture(inputHandler)
+		eh.treeView.SetInputCapture(treeHandler)
 	case ViewModeTimeline:
-		eh.timelineView.SetInputCapture(inputHandler)
+		eh.timelineView.SetInputCapture(timelineHandler)
 	}
 }
 
@@ -578,6 +621,7 @@ func (eh *EventHistory) Stop() {
 // Hints returns keybinding hints for this view.
 func (eh *EventHistory) Hints() []KeyHint {
 	hints := []KeyHint{
+		{Key: "/", Description: "Search"},
 		{Key: "v", Description: "Cycle View"},
 		{Key: "1/2/3", Description: "List/Tree/Timeline"},
 		{Key: "d", Description: "Detail"},

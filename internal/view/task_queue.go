@@ -3,9 +3,11 @@ package view
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/atterpac/jig/components"
+	"github.com/atterpac/jig/input"
 	"github.com/atterpac/jig/theme"
 	"github.com/galaxy-io/tempo/internal/temporal"
 	"github.com/gdamore/tcell/v2"
@@ -28,11 +30,14 @@ type TaskQueueView struct {
 	pollerTable    *components.Table
 	queuePanel     *components.Panel
 	pollerPanel    *components.Panel
-	queues         []taskQueueEntry
+	allQueues      []taskQueueEntry // Full unfiltered list
+	queues         []taskQueueEntry // Filtered list for display
 	pollers        []temporal.Poller
 	selectedQueue  string
 	loading        bool
-	suppressSelect bool // Prevent recursive selection handling
+	suppressSelect bool   // Prevent recursive selection handling
+	searchText     string // Current search filter text
+	baseTitle      string // Base title without search suffix
 }
 
 // NewTaskQueueView creates a new task queue view.
@@ -67,7 +72,8 @@ func (tq *TaskQueueView) setup() {
 	tq.pollerTable.SetBackgroundColor(theme.Bg())
 
 	// Create panels with icons (blubber pattern)
-	tq.queuePanel = components.NewPanel().SetTitle(fmt.Sprintf("%s Task Queues", theme.IconTaskQueue))
+	tq.baseTitle = fmt.Sprintf("%s Task Queues", theme.IconTaskQueue)
+	tq.queuePanel = components.NewPanel().SetTitle(tq.baseTitle)
 	tq.queuePanel.SetContent(tq.queueTable)
 
 	tq.pollerPanel = components.NewPanel().SetTitle(fmt.Sprintf("%s Pollers", theme.IconActivity))
@@ -91,6 +97,44 @@ func (tq *TaskQueueView) setup() {
 
 func (tq *TaskQueueView) setLoading(loading bool) {
 	tq.loading = loading
+}
+
+func (tq *TaskQueueView) applyFilter(query string) {
+	tq.searchText = query
+	tq.updateTitle()
+	if query == "" {
+		tq.queues = tq.allQueues
+	} else {
+		tq.queues = nil
+		q := strings.ToLower(query)
+		for _, queue := range tq.allQueues {
+			if strings.Contains(strings.ToLower(queue.Name), q) ||
+				strings.Contains(strings.ToLower(queue.Type), q) {
+				tq.queues = append(tq.queues, queue)
+			}
+		}
+	}
+	tq.populateQueueTable()
+}
+
+func (tq *TaskQueueView) updateTitle() {
+	if tq.searchText == "" {
+		tq.queuePanel.SetTitle(tq.baseTitle)
+	} else {
+		tq.queuePanel.SetTitle(tq.baseTitle + " (/" + tq.searchText + ")")
+	}
+}
+
+func (tq *TaskQueueView) showSearch() {
+	tq.app.ShowFilterMode(tq.searchText, FilterModeCallbacks{
+		OnChange: func(text string) {
+			tq.applyFilter(text)
+		},
+		OnSubmit: func(text string) {
+			tq.applyFilter(text)
+		},
+		OnCancel: func() {},
+	})
 }
 
 // RefreshTheme updates all component colors after a theme change.
@@ -143,9 +187,9 @@ func (tq *TaskQueueView) loadData() {
 			}
 
 			// Build queue entries
-			tq.queues = []taskQueueEntry{}
+			tq.allQueues = []taskQueueEntry{}
 			for name := range queueSet {
-				tq.queues = append(tq.queues, taskQueueEntry{
+				tq.allQueues = append(tq.allQueues, taskQueueEntry{
 					Name:        name,
 					Type:        "Combined",
 					PollerCount: 0,
@@ -153,8 +197,8 @@ func (tq *TaskQueueView) loadData() {
 				})
 			}
 
-			if len(tq.queues) == 0 {
-				tq.queues = append(tq.queues, taskQueueEntry{
+			if len(tq.allQueues) == 0 {
+				tq.allQueues = append(tq.allQueues, taskQueueEntry{
 					Name:        "(no task queues found)",
 					Type:        "-",
 					PollerCount: 0,
@@ -162,7 +206,7 @@ func (tq *TaskQueueView) loadData() {
 				})
 			}
 
-			tq.populateQueueTable()
+			tq.applyFilter(tq.searchText)
 
 			// Load details for first queue
 			if len(tq.queues) > 0 && tq.queues[0].Name != "(no task queues found)" {
@@ -184,13 +228,13 @@ func (tq *TaskQueueView) showQueueError(err error) {
 }
 
 func (tq *TaskQueueView) loadMockQueues() {
-	tq.queues = []taskQueueEntry{
+	tq.allQueues = []taskQueueEntry{
 		{Name: "order-tasks", Type: "Combined", PollerCount: 5, Backlog: 12},
 		{Name: "payment-tasks", Type: "Combined", PollerCount: 3, Backlog: 0},
 		{Name: "shipment-tasks", Type: "Combined", PollerCount: 2, Backlog: 5},
 		{Name: "notification-tasks", Type: "Combined", PollerCount: 2, Backlog: 0},
 	}
-	tq.populateQueueTable()
+	tq.applyFilter(tq.searchText)
 }
 
 func (tq *TaskQueueView) populateQueueTable() {
@@ -365,25 +409,39 @@ func (tq *TaskQueueView) Name() string {
 
 // Start is called when the view becomes active.
 func (tq *TaskQueueView) Start() {
-	tq.queueTable.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		switch {
-		case event.Key() == tcell.KeyTab:
+	queueBindings := input.NewKeyBindings().
+		On(tcell.KeyTab, func(e *tcell.EventKey) bool {
 			tq.app.JigApp().SetFocus(tq.pollerTable)
-			return nil
-		case event.Rune() == 'r':
+			return true
+		}).
+		OnRune('/', func(e *tcell.EventKey) bool {
+			tq.showSearch()
+			return true
+		}).
+		OnRune('r', func(e *tcell.EventKey) bool {
 			tq.refreshCurrentQueue()
+			return true
+		})
+
+	pollerBindings := input.NewKeyBindings().
+		On(tcell.KeyTab, func(e *tcell.EventKey) bool {
+			tq.app.JigApp().SetFocus(tq.queueTable)
+			return true
+		}).
+		OnRune('r', func(e *tcell.EventKey) bool {
+			tq.refreshCurrentQueue()
+			return true
+		})
+
+	tq.queueTable.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if queueBindings.Handle(event) {
 			return nil
 		}
 		return event
 	})
 
 	tq.pollerTable.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		switch {
-		case event.Key() == tcell.KeyTab:
-			tq.app.JigApp().SetFocus(tq.queueTable)
-			return nil
-		case event.Rune() == 'r':
-			tq.refreshCurrentQueue()
+		if pollerBindings.Handle(event) {
 			return nil
 		}
 		return event
@@ -402,6 +460,7 @@ func (tq *TaskQueueView) Stop() {
 // Hints returns keybinding hints for this view.
 func (tq *TaskQueueView) Hints() []KeyHint {
 	return []KeyHint{
+		{Key: "/", Description: "Search"},
 		{Key: "r", Description: "Refresh"},
 		{Key: "tab", Description: "Switch Panel"},
 		{Key: "j/k", Description: "Navigate"},

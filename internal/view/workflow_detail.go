@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/atterpac/jig/components"
+	"github.com/atterpac/jig/input"
 	"github.com/atterpac/jig/theme"
 	"github.com/atterpac/jig/validators"
 	"github.com/galaxy-io/tempo/internal/temporal"
@@ -22,7 +23,8 @@ type WorkflowDetail struct {
 	workflowID       string
 	runID            string
 	workflow         *temporal.Workflow
-	events           []temporal.EnhancedHistoryEvent
+	allEvents        []temporal.EnhancedHistoryEvent // Full unfiltered list
+	events           []temporal.EnhancedHistoryEvent // Filtered list for display
 	leftFlex         *tview.Flex
 	workflowPanel    *components.Panel
 	eventDetailPanel *components.Panel
@@ -31,6 +33,8 @@ type WorkflowDetail struct {
 	eventDetailView  *tview.TextView
 	eventTable       *components.Table
 	loading          bool
+	searchText       string // Current search filter text
+	baseEventsTitle  string // Base title without search suffix
 }
 
 // NewWorkflowDetail creates a new workflow detail view.
@@ -77,7 +81,8 @@ func (wd *WorkflowDetail) setup() {
 	wd.eventDetailPanel = components.NewPanel().SetTitle(fmt.Sprintf("%s Event Detail", theme.IconInfo))
 	wd.eventDetailPanel.SetContent(wd.eventDetailView)
 
-	wd.eventsPanel = components.NewPanel().SetTitle(fmt.Sprintf("%s Events", theme.IconEvent))
+	wd.baseEventsTitle = fmt.Sprintf("%s Events", theme.IconEvent)
+	wd.eventsPanel = components.NewPanel().SetTitle(wd.baseEventsTitle)
 	wd.eventsPanel.SetContent(wd.eventTable)
 
 	// Left side: workflow info + event detail stacked
@@ -103,6 +108,47 @@ func (wd *WorkflowDetail) setup() {
 
 func (wd *WorkflowDetail) setLoading(loading bool) {
 	wd.loading = loading
+}
+
+func (wd *WorkflowDetail) applyFilter(query string) {
+	wd.searchText = query
+	wd.updateEventsTitle()
+	if query == "" {
+		wd.events = wd.allEvents
+	} else {
+		wd.events = nil
+		q := strings.ToLower(query)
+		for _, ev := range wd.allEvents {
+			if strings.Contains(strings.ToLower(ev.Type), q) ||
+				strings.Contains(strings.ToLower(ev.ActivityType), q) ||
+				strings.Contains(strings.ToLower(ev.TimerID), q) ||
+				strings.Contains(strings.ToLower(ev.ChildWorkflowType), q) ||
+				strings.Contains(strings.ToLower(ev.Details), q) {
+				wd.events = append(wd.events, ev)
+			}
+		}
+	}
+	wd.populateEventTable()
+}
+
+func (wd *WorkflowDetail) updateEventsTitle() {
+	if wd.searchText == "" {
+		wd.eventsPanel.SetTitle(wd.baseEventsTitle)
+	} else {
+		wd.eventsPanel.SetTitle(wd.baseEventsTitle + " (/" + wd.searchText + ")")
+	}
+}
+
+func (wd *WorkflowDetail) showSearch() {
+	wd.app.ShowFilterMode(wd.searchText, FilterModeCallbacks{
+		OnChange: func(text string) {
+			wd.applyFilter(text)
+		},
+		OnSubmit: func(text string) {
+			wd.applyFilter(text)
+		},
+		OnCancel: func() {},
+	})
 }
 
 // RefreshTheme updates all component colors after a theme change.
@@ -192,6 +238,7 @@ func (wd *WorkflowDetail) loadData() {
 				// Show workflow info even if events fail
 				return
 			}
+			wd.allEvents = events
 			wd.events = events
 			wd.populateEventTable()
 
@@ -206,11 +253,11 @@ func (wd *WorkflowDetail) loadData() {
 // extractWorkflowIO extracts input/output from the loaded events and updates the workflow.
 // This avoids a redundant API call since we already have the full event history.
 func (wd *WorkflowDetail) extractWorkflowIO() {
-	if wd.workflow == nil || len(wd.events) == 0 {
+	if wd.workflow == nil || len(wd.allEvents) == 0 {
 		return
 	}
 
-	for _, event := range wd.events {
+	for _, event := range wd.allEvents {
 		switch {
 		case strings.Contains(event.Type, "WorkflowExecutionStarted"):
 			if event.Input != "" {
@@ -245,7 +292,7 @@ func (wd *WorkflowDetail) loadMockData() {
 		TaskQueue: "mock-tasks",
 		StartTime: now.Add(-5 * time.Minute),
 	}
-	wd.events = []temporal.EnhancedHistoryEvent{
+	wd.allEvents = []temporal.EnhancedHistoryEvent{
 		{ID: 1, Type: "WorkflowExecutionStarted", Time: now.Add(-5 * time.Minute), Details: "WorkflowType: MockWorkflow, TaskQueue: mock-tasks"},
 		{ID: 2, Type: "WorkflowTaskScheduled", Time: now.Add(-5 * time.Minute), Details: "TaskQueue: mock-tasks"},
 		{ID: 3, Type: "WorkflowTaskStarted", Time: now.Add(-5 * time.Minute), Details: "Identity: worker-1@host"},
@@ -254,6 +301,7 @@ func (wd *WorkflowDetail) loadMockData() {
 		{ID: 6, Type: "ActivityTaskStarted", Time: now.Add(-4 * time.Minute), Details: "Identity: worker-1@host, Attempt: 1", ActivityType: "MockActivity", ScheduledEventID: 5},
 		{ID: 7, Type: "ActivityTaskCompleted", Time: now.Add(-3 * time.Minute), Details: "ScheduledEventId: 5, Result: {success: true}", ActivityType: "MockActivity", ScheduledEventID: 5},
 	}
+	wd.events = wd.allEvents
 	wd.render()
 	wd.populateEventTable()
 }
@@ -585,44 +633,66 @@ func (wd *WorkflowDetail) Name() string {
 
 // Start is called when the view becomes active.
 func (wd *WorkflowDetail) Start() {
-	wd.eventTable.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
-		switch event.Rune() {
-		case 'r':
+	bindings := input.NewKeyBindings().
+		OnRune('/', func(e *tcell.EventKey) bool {
+			wd.showSearch()
+			return true
+		}).
+		OnRune('r', func(e *tcell.EventKey) bool {
 			wd.loadData()
-			return nil
-		case 'e':
-			// Navigate to event history/graph view
+			return true
+		}).
+		OnRune('e', func(e *tcell.EventKey) bool {
 			wd.app.NavigateToEvents(wd.workflowID, wd.runID)
-			return nil
-		case 'y':
+			return true
+		}).
+		OnRune('y', func(e *tcell.EventKey) bool {
 			wd.yankEventData()
-			return nil
-		case 'd':
+			return true
+		}).
+		OnRune('d', func(e *tcell.EventKey) bool {
 			wd.showEventDetailModal()
-			return nil
-		case 'c':
+			return true
+		}).
+		OnRune('c', func(e *tcell.EventKey) bool {
 			wd.showCancelConfirm()
-			return nil
-		case 'X':
+			return true
+		}).
+		OnRune('X', func(e *tcell.EventKey) bool {
 			wd.showTerminateConfirm()
-			return nil
-		case 's':
+			return true
+		}).
+		OnRune('s', func(e *tcell.EventKey) bool {
 			wd.showSignalInput()
-			return nil
-		case 'D':
+			return true
+		}).
+		OnRune('D', func(e *tcell.EventKey) bool {
 			wd.showDeleteConfirm()
-			return nil
-		case 'R':
+			return true
+		}).
+		OnRune('R', func(e *tcell.EventKey) bool {
 			wd.showResetSelector()
-			return nil
-		case 'Q':
+			return true
+		}).
+		OnRune('Q', func(e *tcell.EventKey) bool {
 			wd.showQueryInput()
-			return nil
-		case 'i':
+			return true
+		}).
+		OnRune('i', func(e *tcell.EventKey) bool {
 			wd.showIOModal()
-			return nil
-		case 'g':
+			return true
+		}).
+		OnRune('g', func(e *tcell.EventKey) bool {
 			wd.jumpToChildWorkflow()
+			return true
+		}).
+		OnRune('o', func(e *tcell.EventKey) bool {
+			wd.showWorkflowGraph()
+			return true
+		})
+
+	wd.eventTable.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if bindings.Handle(event) {
 			return nil
 		}
 		return event
@@ -638,8 +708,10 @@ func (wd *WorkflowDetail) Stop() {
 // Hints returns keybinding hints for this view.
 func (wd *WorkflowDetail) Hints() []KeyHint {
 	hints := []KeyHint{
+		{Key: "/", Description: "Search"},
 		{Key: "i", Description: "Input/Output"},
 		{Key: "e", Description: "Event Graph"},
+		{Key: "o", Description: "Relationships"},
 		{Key: "d", Description: "Detail"},
 		{Key: "g", Description: "Go to Child"},
 		{Key: "y", Description: "Yank"},
@@ -1982,6 +2054,13 @@ func (wd *WorkflowDetail) jumpToChildWorkflow() {
 
 	// Navigate to the child workflow
 	wd.app.NavigateToWorkflowDetail(ev.ChildWorkflowID, ev.ChildRunID)
+}
+
+func (wd *WorkflowDetail) showWorkflowGraph() {
+	if wd.workflow == nil {
+		return
+	}
+	wd.app.NavigateToWorkflowGraph(wd.workflow)
 }
 
 // hasChildWorkflowInfo returns true if the selected event is a child workflow event with navigation info.
