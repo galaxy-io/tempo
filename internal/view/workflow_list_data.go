@@ -3,6 +3,7 @@ package view
 import (
 	"context"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/atterpac/jig/theme"
@@ -46,6 +47,10 @@ func (wl *WorkflowList) loadData() {
 				wl.showError(err)
 				return
 			}
+			// Sort by most recent first
+			sort.Slice(workflows, func(i, j int) bool {
+				return workflows[i].StartTime.After(workflows[j].StartTime)
+			})
 			wl.allWorkflows = workflows
 			wl.applyFilter()
 			// Set focus to table after data loads
