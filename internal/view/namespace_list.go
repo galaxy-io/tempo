@@ -325,6 +325,18 @@ func (nl *NamespaceList) Name() string {
 
 // Start is called when the view becomes active.
 func (nl *NamespaceList) Start() {
+	// If using API key auth, skip namespace list entirely and go to workflows
+	// (API keys are typically namespace-scoped and can't list all namespaces)
+	provider := nl.app.Provider()
+	if provider != nil && provider.Config().APIKey != "" {
+		// Replace this view with workflows for the configured namespace
+		nl.app.JigApp().Pages().Pop() // Remove namespace list from stack
+		wl := NewWorkflowList(nl.app, provider.Config().Namespace)
+		nl.app.JigApp().Pages().Push(wl)
+		nl.app.JigApp().SetFocus(wl)
+		return
+	}
+
 	bindings := input.NewKeyBindings().
 		OnRune('/', func(e *tcell.EventKey) bool {
 			nl.ShowSearch()

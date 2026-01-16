@@ -55,7 +55,7 @@ func main() {
 	var started []workflowRef
 
 	// 1. Start workflows that will COMPLETE successfully (~6)
-	fmt.Println("\n[1/8] Starting workflows that will complete...")
+	fmt.Println("\n[1/9] Starting workflows that will complete...")
 	completingWorkflows := []struct {
 		name  string
 		input map[string]interface{}
@@ -77,7 +77,7 @@ func main() {
 	}
 
 	// 2. Start Gantt demo workflow (many activities)
-	fmt.Println("\n[2/8] Starting Gantt demo workflow (31 activities)...")
+	fmt.Println("\n[2/9] Starting Gantt demo workflow (31 activities)...")
 	ganttRef, err := startWorkflow(ctx, c, "GanttDemoWorkflow", map[string]interface{}{
 		"description": "Complex workflow for Gantt chart visualization",
 	})
@@ -89,7 +89,7 @@ func main() {
 	}
 
 	// 3. Start workflows that will FAIL (~4)
-	fmt.Println("\n[3/8] Starting workflows that will fail...")
+	fmt.Println("\n[3/9] Starting workflows that will fail...")
 	failingWorkflows := []struct {
 		name  string
 		input map[string]interface{}
@@ -110,7 +110,7 @@ func main() {
 	}
 
 	// 4. Start LONG-RUNNING workflows (~3)
-	fmt.Println("\n[4/8] Starting long-running workflows...")
+	fmt.Println("\n[4/9] Starting long-running workflows...")
 	longRunningWorkflows := []struct {
 		name  string
 		input map[string]interface{}
@@ -130,7 +130,7 @@ func main() {
 	}
 
 	// 5. Start workflows to CANCEL (~3)
-	fmt.Println("\n[5/8] Starting workflows to cancel...")
+	fmt.Println("\n[5/9] Starting workflows to cancel...")
 	var toCancel []workflowRef
 	cancelWorkflows := []struct {
 		name  string
@@ -152,7 +152,7 @@ func main() {
 	}
 
 	// 6. Start workflows to TERMINATE (~3)
-	fmt.Println("\n[6/8] Starting workflows to terminate...")
+	fmt.Println("\n[6/9] Starting workflows to terminate...")
 	var toTerminate []workflowRef
 	terminateWorkflows := []struct {
 		name  string
@@ -174,7 +174,7 @@ func main() {
 	}
 
 	// 7. Start workflows that will TIMEOUT (~3)
-	fmt.Println("\n[7/8] Starting workflows with short timeouts...")
+	fmt.Println("\n[7/9] Starting workflows with short timeouts...")
 	timeoutWorkflows := []struct {
 		name  string
 		input map[string]interface{}
@@ -194,7 +194,7 @@ func main() {
 	}
 
 	// 8. Start continue-as-new workflows (~2)
-	fmt.Println("\n[8/8] Starting continue-as-new workflows...")
+	fmt.Println("\n[8/9] Starting continue-as-new workflows...")
 	canWorkflows := []struct {
 		name  string
 		input map[string]interface{}
@@ -208,6 +208,25 @@ func main() {
 			log.Printf("  ✗ Failed to start %s: %v", wf.name, err)
 		} else {
 			fmt.Printf("  ✓ Started %s (%s) - will continue-as-new\n", wf.name, ref.id)
+			started = append(started, ref)
+		}
+	}
+
+	// 9. Start relationship demo workflows (for graph view visualization)
+	fmt.Println("\n[9/9] Starting relationship demo workflows (for graph view)...")
+	relationshipWorkflows := []struct {
+		name  string
+		input map[string]interface{}
+	}{
+		{"RelationshipDemoWorkflow", map[string]interface{}{"orderId": "order-graph-demo-1"}},
+		{"RelationshipDemoWorkflow", map[string]interface{}{"orderId": "order-graph-demo-2"}},
+	}
+	for _, wf := range relationshipWorkflows {
+		ref, err := startWorkflow(ctx, c, wf.name, wf.input)
+		if err != nil {
+			log.Printf("  ✗ Failed to start %s: %v", wf.name, err)
+		} else {
+			fmt.Printf("  ✓ Started %s (%s) - creates 9 child/grandchild workflows\n", wf.name, ref.id)
 			started = append(started, ref)
 		}
 	}
@@ -249,6 +268,7 @@ func main() {
 	fmt.Println("  - ~3 Terminated")
 	fmt.Println("  - ~3 will Timeout")
 	fmt.Println("  - ~2 will ContinueAsNew")
+	fmt.Println("  - 2 RelationshipDemo (9 children each for graph view)")
 	fmt.Println("\nNote: Make sure the demo-worker is running to process these workflows!")
 }
 

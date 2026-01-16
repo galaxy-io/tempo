@@ -89,8 +89,14 @@ func NewClient(ctx context.Context, connConfig ConnectionConfig) (*Client, error
 		Logger:    sdkLogger,
 	}
 
-	// Configure TLS if any TLS options are provided
-	if connConfig.TLSCertPath != "" || connConfig.TLSCAPath != "" || connConfig.TLSSkipVerify {
+	// Configure authentication
+	if connConfig.APIKey != "" {
+		// API Key authentication (Temporal Cloud)
+		opts.Credentials = client.NewAPIKeyStaticCredentials(connConfig.APIKey)
+		// API key auth requires TLS but doesn't need client certificates
+		opts.ConnectionOptions.TLS = &tls.Config{}
+	} else if connConfig.TLSCertPath != "" || connConfig.TLSCAPath != "" || connConfig.TLSSkipVerify {
+		// mTLS authentication
 		tlsConfig, err := buildTLSConfig(connConfig)
 		if err != nil {
 			return nil, fmt.Errorf("failed to configure TLS: %w", err)
@@ -225,8 +231,14 @@ func (c *Client) reconnectWithConfig(ctx context.Context, connConfig ConnectionC
 		Logger:    sdkLogger,
 	}
 
-	// Configure TLS if any TLS options are provided
-	if connConfig.TLSCertPath != "" || connConfig.TLSCAPath != "" || connConfig.TLSSkipVerify {
+	// Configure authentication
+	if connConfig.APIKey != "" {
+		// API Key authentication (Temporal Cloud)
+		opts.Credentials = client.NewAPIKeyStaticCredentials(connConfig.APIKey)
+		// API key auth requires TLS but doesn't need client certificates
+		opts.ConnectionOptions.TLS = &tls.Config{}
+	} else if connConfig.TLSCertPath != "" || connConfig.TLSCAPath != "" || connConfig.TLSSkipVerify {
+		// mTLS authentication
 		tlsConfig, err := buildTLSConfig(connConfig)
 		if err != nil {
 			return fmt.Errorf("failed to configure TLS: %w", err)

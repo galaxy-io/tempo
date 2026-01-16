@@ -90,8 +90,9 @@ func main() {
 		cfg.ActiveProfile = activeProfileName
 	}
 
-	// Get the profile's connection config
+	// Get the profile's connection config and expand env vars
 	profileConfig, _ := cfg.GetProfile(activeProfileName)
+	profileConfig = profileConfig.ExpandEnv()
 
 	// Build temporal connection config from profile
 	connConfig := temporal.ConnectionConfig{
@@ -102,6 +103,7 @@ func main() {
 		TLSCAPath:     profileConfig.TLS.CA,
 		TLSServerName: profileConfig.TLS.ServerName,
 		TLSSkipVerify: profileConfig.TLS.SkipVerify,
+		APIKey:        profileConfig.APIKey,
 	}
 
 	// CLI flags override profile settings

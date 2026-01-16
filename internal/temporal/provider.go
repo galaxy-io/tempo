@@ -281,6 +281,7 @@ type ConnectionConfig struct {
 	TLSCAPath     string
 	TLSServerName string
 	TLSSkipVerify bool
+	APIKey        string // For Temporal Cloud API key authentication
 }
 
 // DefaultConnectionConfig returns default connection settings.

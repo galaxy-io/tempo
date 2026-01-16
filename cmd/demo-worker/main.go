@@ -73,6 +73,20 @@ func main() {
 	w.RegisterWorkflow(ContinueAsNewWorkflow)
 	w.RegisterWorkflow(GanttDemoWorkflow)
 
+	// Relationship demo workflows - for graph view visualization
+	w.RegisterWorkflow(RelationshipDemoWorkflow)
+	w.RegisterWorkflow(OrderProcessingChild)
+	w.RegisterWorkflow(FulfillmentChild)
+	w.RegisterWorkflow(WarehouseGrandchild)
+	w.RegisterWorkflow(ShippingGrandchild)
+	w.RegisterWorkflow(PaymentProcessingChild)
+	w.RegisterWorkflow(FraudCheckGrandchild)
+	w.RegisterWorkflow(ChargeGrandchild)
+	w.RegisterWorkflow(NotificationFanout)
+	w.RegisterWorkflow(EmailNotificationChild)
+	w.RegisterWorkflow(SMSNotificationChild)
+	w.RegisterWorkflow(PushNotificationChild)
+
 	// Child workflows
 	w.RegisterWorkflow(PaymentChildWorkflow)
 	w.RegisterWorkflow(ShippingChildWorkflow)
@@ -1433,4 +1447,510 @@ func GanttActivity(ctx context.Context, input map[string]interface{}) (map[strin
 		"phase":    phase,
 		"duration": actualDuration,
 	}, nil
+}
+
+// ============================================================================
+// RELATIONSHIP DEMO WORKFLOWS - Complex hierarchy for graph view visualization
+// ============================================================================
+
+// RelationshipDemoWorkflow creates a complex workflow tree to demonstrate the
+// relationship graph view. It spawns multiple children which spawn grandchildren,
+// and sends signals between workflows.
+//
+// Structure:
+//
+//	RelationshipDemoWorkflow (root)
+//	├── OrderProcessingChild
+//	│   ├── FulfillmentChild
+//	│   │   ├── WarehouseGrandchild
+//	│   │   └── ShippingGrandchild
+//	│   └── PaymentProcessingChild
+//	│       ├── FraudCheckGrandchild
+//	│       └── ChargeGrandchild
+//	└── NotificationFanout
+//	    ├── EmailNotificationChild
+//	    ├── SMSNotificationChild
+//	    └── PushNotificationChild
+func RelationshipDemoWorkflow(ctx workflow.Context, input map[string]interface{}) (map[string]interface{}, error) {
+	logger := workflow.GetLogger(ctx)
+	logger.Info("RelationshipDemoWorkflow started - creating complex hierarchy for graph demo")
+
+	ao := workflow.ActivityOptions{
+		StartToCloseTimeout: 30 * time.Second,
+	}
+	ctx = workflow.WithActivityOptions(ctx, ao)
+
+	workflowID := workflow.GetInfo(ctx).WorkflowExecution.ID
+
+	// Initial activity
+	if err := workflow.ExecuteActivity(ctx, GanttActivity, map[string]interface{}{
+		"name": "InitializeOrder", "duration": 500, "phase": 1,
+	}).Get(ctx, nil); err != nil {
+		return nil, err
+	}
+
+	// Start OrderProcessingChild - handles fulfillment and payment
+	orderChildCtx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
+		WorkflowID: workflowID + "-order-processing",
+	})
+	orderFuture := workflow.ExecuteChildWorkflow(orderChildCtx, OrderProcessingChild, map[string]interface{}{
+		"orderId":  input["orderId"],
+		"parentId": workflowID,
+	})
+
+	// Start NotificationFanout - handles all notifications in parallel
+	notifyChildCtx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
+		WorkflowID: workflowID + "-notifications",
+	})
+	notifyFuture := workflow.ExecuteChildWorkflow(notifyChildCtx, NotificationFanout, map[string]interface{}{
+		"orderId":  input["orderId"],
+		"parentId": workflowID,
+		"channels": []string{"email", "sms", "push"},
+	})
+
+	// Wait for order processing
+	var orderResult map[string]interface{}
+	if err := orderFuture.Get(ctx, &orderResult); err != nil {
+		return nil, fmt.Errorf("order processing failed: %w", err)
+	}
+
+	// Signal the notification workflow that order is complete
+	if err := workflow.SignalExternalWorkflow(ctx, workflowID+"-notifications", "", "order-complete", map[string]interface{}{
+		"status":    "completed",
+		"orderData": orderResult,
+	}).Get(ctx, nil); err != nil {
+		logger.Warn("Failed to signal notification workflow", "error", err)
+	}
+
+	// Wait for notifications
+	var notifyResult map[string]interface{}
+	if err := notifyFuture.Get(ctx, &notifyResult); err != nil {
+		logger.Warn("Notifications had some failures", "error", err)
+	}
+
+	// Final activity
+	if err := workflow.ExecuteActivity(ctx, GanttActivity, map[string]interface{}{
+		"name": "FinalizeOrder", "duration": 300, "phase": 1,
+	}).Get(ctx, nil); err != nil {
+		return nil, err
+	}
+
+	return map[string]interface{}{
+		"status":        "completed",
+		"orderId":       input["orderId"],
+		"orderResult":   orderResult,
+		"notifications": notifyResult,
+		"childCount":    2,
+		"grandchildren": 7,
+	}, nil
+}
+
+// OrderProcessingChild handles order fulfillment and payment as child workflows
+func OrderProcessingChild(ctx workflow.Context, input map[string]interface{}) (map[string]interface{}, error) {
+	logger := workflow.GetLogger(ctx)
+	logger.Info("OrderProcessingChild started")
+
+	ao := workflow.ActivityOptions{
+		StartToCloseTimeout: 30 * time.Second,
+	}
+	ctx = workflow.WithActivityOptions(ctx, ao)
+
+	workflowID := workflow.GetInfo(ctx).WorkflowExecution.ID
+
+	// Validate order first
+	if err := workflow.ExecuteActivity(ctx, GanttActivity, map[string]interface{}{
+		"name": "ValidateOrder", "duration": 400, "phase": 2,
+	}).Get(ctx, nil); err != nil {
+		return nil, err
+	}
+
+	// Start FulfillmentChild and PaymentProcessingChild in parallel
+	fulfillCtx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
+		WorkflowID: workflowID + "-fulfillment",
+	})
+	fulfillFuture := workflow.ExecuteChildWorkflow(fulfillCtx, FulfillmentChild, map[string]interface{}{
+		"orderId": input["orderId"],
+	})
+
+	paymentCtx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
+		WorkflowID: workflowID + "-payment",
+	})
+	paymentFuture := workflow.ExecuteChildWorkflow(paymentCtx, PaymentProcessingChild, map[string]interface{}{
+		"orderId": input["orderId"],
+		"amount":  99.99,
+	})
+
+	// Wait for both
+	var fulfillResult, paymentResult map[string]interface{}
+	if err := fulfillFuture.Get(ctx, &fulfillResult); err != nil {
+		return nil, fmt.Errorf("fulfillment failed: %w", err)
+	}
+	if err := paymentFuture.Get(ctx, &paymentResult); err != nil {
+		return nil, fmt.Errorf("payment failed: %w", err)
+	}
+
+	return map[string]interface{}{
+		"status":      "processed",
+		"fulfillment": fulfillResult,
+		"payment":     paymentResult,
+	}, nil
+}
+
+// FulfillmentChild handles warehouse and shipping as grandchildren
+func FulfillmentChild(ctx workflow.Context, input map[string]interface{}) (map[string]interface{}, error) {
+	logger := workflow.GetLogger(ctx)
+	logger.Info("FulfillmentChild started")
+
+	ao := workflow.ActivityOptions{
+		StartToCloseTimeout: 30 * time.Second,
+	}
+	ctx = workflow.WithActivityOptions(ctx, ao)
+
+	workflowID := workflow.GetInfo(ctx).WorkflowExecution.ID
+
+	// Start warehouse operations
+	warehouseCtx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
+		WorkflowID: workflowID + "-warehouse",
+	})
+	warehouseFuture := workflow.ExecuteChildWorkflow(warehouseCtx, WarehouseGrandchild, input)
+
+	// Wait for warehouse to complete before shipping
+	var warehouseResult map[string]interface{}
+	if err := warehouseFuture.Get(ctx, &warehouseResult); err != nil {
+		return nil, fmt.Errorf("warehouse failed: %w", err)
+	}
+
+	// Now start shipping
+	shippingCtx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
+		WorkflowID: workflowID + "-shipping",
+	})
+	var shippingResult map[string]interface{}
+	if err := workflow.ExecuteChildWorkflow(shippingCtx, ShippingGrandchild, map[string]interface{}{
+		"orderId":       input["orderId"],
+		"warehouseData": warehouseResult,
+	}).Get(ctx, &shippingResult); err != nil {
+		return nil, fmt.Errorf("shipping failed: %w", err)
+	}
+
+	return map[string]interface{}{
+		"status":    "fulfilled",
+		"warehouse": warehouseResult,
+		"shipping":  shippingResult,
+	}, nil
+}
+
+// WarehouseGrandchild handles inventory reservation and picking
+func WarehouseGrandchild(ctx workflow.Context, input map[string]interface{}) (map[string]interface{}, error) {
+	ao := workflow.ActivityOptions{
+		StartToCloseTimeout: 30 * time.Second,
+	}
+	ctx = workflow.WithActivityOptions(ctx, ao)
+
+	// Reserve inventory
+	if err := workflow.ExecuteActivity(ctx, GanttActivity, map[string]interface{}{
+		"name": "ReserveInventory", "duration": 600, "phase": 3,
+	}).Get(ctx, nil); err != nil {
+		return nil, err
+	}
+
+	// Pick items
+	if err := workflow.ExecuteActivity(ctx, GanttActivity, map[string]interface{}{
+		"name": "PickItems", "duration": 800, "phase": 3,
+	}).Get(ctx, nil); err != nil {
+		return nil, err
+	}
+
+	// Pack order
+	if err := workflow.ExecuteActivity(ctx, GanttActivity, map[string]interface{}{
+		"name": "PackOrder", "duration": 500, "phase": 3,
+	}).Get(ctx, nil); err != nil {
+		return nil, err
+	}
+
+	return map[string]interface{}{
+		"status":    "packed",
+		"warehouse": "WH-001",
+		"location":  "Aisle-5-Shelf-3",
+	}, nil
+}
+
+// ShippingGrandchild handles carrier selection and label generation
+func ShippingGrandchild(ctx workflow.Context, input map[string]interface{}) (map[string]interface{}, error) {
+	ao := workflow.ActivityOptions{
+		StartToCloseTimeout: 30 * time.Second,
+	}
+	ctx = workflow.WithActivityOptions(ctx, ao)
+
+	// Select carrier
+	if err := workflow.ExecuteActivity(ctx, GanttActivity, map[string]interface{}{
+		"name": "SelectCarrier", "duration": 300, "phase": 3,
+	}).Get(ctx, nil); err != nil {
+		return nil, err
+	}
+
+	// Generate shipping label
+	if err := workflow.ExecuteActivity(ctx, GanttActivity, map[string]interface{}{
+		"name": "GenerateLabel", "duration": 400, "phase": 3,
+	}).Get(ctx, nil); err != nil {
+		return nil, err
+	}
+
+	// Schedule pickup
+	if err := workflow.ExecuteActivity(ctx, GanttActivity, map[string]interface{}{
+		"name": "SchedulePickup", "duration": 500, "phase": 3,
+	}).Get(ctx, nil); err != nil {
+		return nil, err
+	}
+
+	return map[string]interface{}{
+		"status":         "shipped",
+		"carrier":        "FastShip",
+		"trackingNumber": fmt.Sprintf("TRK%d", rand.Intn(1000000)),
+	}, nil
+}
+
+// PaymentProcessingChild handles fraud check and charging as grandchildren
+func PaymentProcessingChild(ctx workflow.Context, input map[string]interface{}) (map[string]interface{}, error) {
+	logger := workflow.GetLogger(ctx)
+	logger.Info("PaymentProcessingChild started")
+
+	ao := workflow.ActivityOptions{
+		StartToCloseTimeout: 30 * time.Second,
+	}
+	ctx = workflow.WithActivityOptions(ctx, ao)
+
+	workflowID := workflow.GetInfo(ctx).WorkflowExecution.ID
+
+	// Run fraud check first
+	fraudCtx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
+		WorkflowID: workflowID + "-fraud-check",
+	})
+	var fraudResult map[string]interface{}
+	if err := workflow.ExecuteChildWorkflow(fraudCtx, FraudCheckGrandchild, input).Get(ctx, &fraudResult); err != nil {
+		return nil, fmt.Errorf("fraud check failed: %w", err)
+	}
+
+	// If fraud check passed, charge the card
+	chargeCtx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
+		WorkflowID: workflowID + "-charge",
+	})
+	var chargeResult map[string]interface{}
+	if err := workflow.ExecuteChildWorkflow(chargeCtx, ChargeGrandchild, map[string]interface{}{
+		"orderId":     input["orderId"],
+		"amount":      input["amount"],
+		"fraudResult": fraudResult,
+	}).Get(ctx, &chargeResult); err != nil {
+		return nil, fmt.Errorf("charge failed: %w", err)
+	}
+
+	return map[string]interface{}{
+		"status":      "paid",
+		"fraudCheck":  fraudResult,
+		"chargeId":    chargeResult["chargeId"],
+	}, nil
+}
+
+// FraudCheckGrandchild runs fraud detection
+func FraudCheckGrandchild(ctx workflow.Context, input map[string]interface{}) (map[string]interface{}, error) {
+	ao := workflow.ActivityOptions{
+		StartToCloseTimeout: 30 * time.Second,
+	}
+	ctx = workflow.WithActivityOptions(ctx, ao)
+
+	// Run fraud analysis
+	if err := workflow.ExecuteActivity(ctx, GanttActivity, map[string]interface{}{
+		"name": "AnalyzeRiskFactors", "duration": 400, "phase": 3,
+	}).Get(ctx, nil); err != nil {
+		return nil, err
+	}
+
+	if err := workflow.ExecuteActivity(ctx, GanttActivity, map[string]interface{}{
+		"name": "CheckBlacklist", "duration": 200, "phase": 3,
+	}).Get(ctx, nil); err != nil {
+		return nil, err
+	}
+
+	if err := workflow.ExecuteActivity(ctx, GanttActivity, map[string]interface{}{
+		"name": "CalculateFraudScore", "duration": 300, "phase": 3,
+	}).Get(ctx, nil); err != nil {
+		return nil, err
+	}
+
+	return map[string]interface{}{
+		"status":     "passed",
+		"riskScore":  rand.Intn(30), // Low risk
+		"confidence": 0.95,
+	}, nil
+}
+
+// ChargeGrandchild handles the actual payment charge
+func ChargeGrandchild(ctx workflow.Context, input map[string]interface{}) (map[string]interface{}, error) {
+	ao := workflow.ActivityOptions{
+		StartToCloseTimeout: 30 * time.Second,
+	}
+	ctx = workflow.WithActivityOptions(ctx, ao)
+
+	// Authorize payment
+	if err := workflow.ExecuteActivity(ctx, GanttActivity, map[string]interface{}{
+		"name": "AuthorizePayment", "duration": 500, "phase": 3,
+	}).Get(ctx, nil); err != nil {
+		return nil, err
+	}
+
+	// Capture payment
+	if err := workflow.ExecuteActivity(ctx, GanttActivity, map[string]interface{}{
+		"name": "CapturePayment", "duration": 400, "phase": 3,
+	}).Get(ctx, nil); err != nil {
+		return nil, err
+	}
+
+	return map[string]interface{}{
+		"status":   "charged",
+		"chargeId": fmt.Sprintf("ch_%d", rand.Intn(100000)),
+		"amount":   input["amount"],
+	}, nil
+}
+
+// NotificationFanout sends notifications through multiple channels as children
+func NotificationFanout(ctx workflow.Context, input map[string]interface{}) (map[string]interface{}, error) {
+	logger := workflow.GetLogger(ctx)
+	logger.Info("NotificationFanout started")
+
+	ao := workflow.ActivityOptions{
+		StartToCloseTimeout: 30 * time.Second,
+	}
+	ctx = workflow.WithActivityOptions(ctx, ao)
+
+	workflowID := workflow.GetInfo(ctx).WorkflowExecution.ID
+
+	// Wait for order completion signal (with timeout)
+	signalChan := workflow.GetSignalChannel(ctx, "order-complete")
+	var signalData map[string]interface{}
+
+	selector := workflow.NewSelector(ctx)
+	selector.AddReceive(signalChan, func(c workflow.ReceiveChannel, more bool) {
+		c.Receive(ctx, &signalData)
+		logger.Info("Received order-complete signal", "data", signalData)
+	})
+	selector.AddFuture(workflow.NewTimer(ctx, 30*time.Second), func(f workflow.Future) {
+		logger.Info("Signal timeout - proceeding anyway")
+	})
+	selector.Select(ctx)
+
+	// Start all notification children in parallel
+	emailCtx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
+		WorkflowID: workflowID + "-email",
+	})
+	emailFuture := workflow.ExecuteChildWorkflow(emailCtx, EmailNotificationChild, map[string]interface{}{
+		"orderId": input["orderId"],
+		"type":    "order_confirmation",
+	})
+
+	smsCtx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
+		WorkflowID: workflowID + "-sms",
+	})
+	smsFuture := workflow.ExecuteChildWorkflow(smsCtx, SMSNotificationChild, map[string]interface{}{
+		"orderId": input["orderId"],
+		"message": "Your order is confirmed!",
+	})
+
+	pushCtx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
+		WorkflowID: workflowID + "-push",
+	})
+	pushFuture := workflow.ExecuteChildWorkflow(pushCtx, PushNotificationChild, map[string]interface{}{
+		"orderId": input["orderId"],
+		"title":   "Order Confirmed",
+	})
+
+	// Collect results (don't fail if one notification fails)
+	results := map[string]interface{}{}
+
+	if err := emailFuture.Get(ctx, nil); err != nil {
+		results["email"] = "failed"
+	} else {
+		results["email"] = "sent"
+	}
+
+	if err := smsFuture.Get(ctx, nil); err != nil {
+		results["sms"] = "failed"
+	} else {
+		results["sms"] = "sent"
+	}
+
+	if err := pushFuture.Get(ctx, nil); err != nil {
+		results["push"] = "failed"
+	} else {
+		results["push"] = "sent"
+	}
+
+	return map[string]interface{}{
+		"status":   "notified",
+		"channels": results,
+	}, nil
+}
+
+// EmailNotificationChild sends email notification
+func EmailNotificationChild(ctx workflow.Context, input map[string]interface{}) (map[string]interface{}, error) {
+	ao := workflow.ActivityOptions{
+		StartToCloseTimeout: 30 * time.Second,
+	}
+	ctx = workflow.WithActivityOptions(ctx, ao)
+
+	if err := workflow.ExecuteActivity(ctx, GanttActivity, map[string]interface{}{
+		"name": "RenderEmailTemplate", "duration": 300, "phase": 4,
+	}).Get(ctx, nil); err != nil {
+		return nil, err
+	}
+
+	if err := workflow.ExecuteActivity(ctx, GanttActivity, map[string]interface{}{
+		"name": "SendEmail", "duration": 400, "phase": 4,
+	}).Get(ctx, nil); err != nil {
+		return nil, err
+	}
+
+	return map[string]interface{}{"channel": "email", "status": "sent"}, nil
+}
+
+// SMSNotificationChild sends SMS notification
+func SMSNotificationChild(ctx workflow.Context, input map[string]interface{}) (map[string]interface{}, error) {
+	ao := workflow.ActivityOptions{
+		StartToCloseTimeout: 30 * time.Second,
+	}
+	ctx = workflow.WithActivityOptions(ctx, ao)
+
+	if err := workflow.ExecuteActivity(ctx, GanttActivity, map[string]interface{}{
+		"name": "FormatSMSMessage", "duration": 200, "phase": 4,
+	}).Get(ctx, nil); err != nil {
+		return nil, err
+	}
+
+	if err := workflow.ExecuteActivity(ctx, GanttActivity, map[string]interface{}{
+		"name": "SendSMS", "duration": 300, "phase": 4,
+	}).Get(ctx, nil); err != nil {
+		return nil, err
+	}
+
+	return map[string]interface{}{"channel": "sms", "status": "sent"}, nil
+}
+
+// PushNotificationChild sends push notification
+func PushNotificationChild(ctx workflow.Context, input map[string]interface{}) (map[string]interface{}, error) {
+	ao := workflow.ActivityOptions{
+		StartToCloseTimeout: 30 * time.Second,
+	}
+	ctx = workflow.WithActivityOptions(ctx, ao)
+
+	if err := workflow.ExecuteActivity(ctx, GanttActivity, map[string]interface{}{
+		"name": "BuildPushPayload", "duration": 200, "phase": 4,
+	}).Get(ctx, nil); err != nil {
+		return nil, err
+	}
+
+	if err := workflow.ExecuteActivity(ctx, GanttActivity, map[string]interface{}{
+		"name": "SendPushNotification", "duration": 250, "phase": 4,
+	}).Get(ctx, nil); err != nil {
+		return nil, err
+	}
+
+	return map[string]interface{}{"channel": "push", "status": "sent"}, nil
 }

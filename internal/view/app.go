@@ -227,8 +227,15 @@ func (a *App) setup() {
 	})
 
 	// Create and push the home view
-	a.namespaceList = NewNamespaceList(a)
-	a.app.Pages().Push(a.namespaceList)
+	// If using API key auth, skip namespace list and go directly to workflows
+	// (API keys are typically namespace-scoped and can't list all namespaces)
+	if a.provider != nil && a.provider.Config().APIKey != "" {
+		wl := NewWorkflowList(a, a.currentNS)
+		a.app.Pages().Push(wl)
+	} else {
+		a.namespaceList = NewNamespaceList(a)
+		a.app.Pages().Push(a.namespaceList)
+	}
 }
 
 func (a *App) updateCrumbs() {
@@ -1052,6 +1059,7 @@ func (a *App) SwitchProfile(name string) {
 	if !ok {
 		return
 	}
+	profileCfg = profileCfg.ExpandEnv()
 
 	connConfig := temporal.ConnectionConfig{
 		Address:       profileCfg.Address,
@@ -1061,6 +1069,7 @@ func (a *App) SwitchProfile(name string) {
 		TLSCAPath:     profileCfg.TLS.CA,
 		TLSServerName: profileCfg.TLS.ServerName,
 		TLSSkipVerify: profileCfg.TLS.SkipVerify,
+		APIKey:        profileCfg.APIKey,
 	}
 
 	// Stop current views
@@ -1107,9 +1116,18 @@ func (a *App) SwitchProfile(name string) {
 // reinitializeViews resets the view stack after a profile switch.
 func (a *App) reinitializeViews() {
 	a.app.Pages().Clear()
-	a.namespaceList = NewNamespaceList(a)
-	a.app.Pages().Push(a.namespaceList)
-	a.app.SetFocus(a.namespaceList)
+
+	// If using API key auth, skip namespace list and go directly to workflows
+	// (API keys are typically namespace-scoped and can't list all namespaces)
+	if a.provider != nil && a.provider.Config().APIKey != "" {
+		wl := NewWorkflowList(a, a.currentNS)
+		a.app.Pages().Push(wl)
+		a.app.SetFocus(wl)
+	} else {
+		a.namespaceList = NewNamespaceList(a)
+		a.app.Pages().Push(a.namespaceList)
+		a.app.SetFocus(a.namespaceList)
+	}
 }
 
 func (a *App) handleProfileCommand(args string) {
