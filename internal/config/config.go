@@ -39,35 +39,9 @@ func (c ConnectionConfig) ExpandEnv() ConnectionConfig {
 }
 
 // expandEnvVar expands environment variable references in a string.
-// Supports ${VAR}, $VAR, and ${VAR:-default} syntax.
+// Uses os.ExpandEnv which supports $VAR and ${VAR} syntax.
 func expandEnvVar(s string) string {
-	if s == "" {
-		return s
-	}
-
-	// Handle ${VAR} and ${VAR:-default} syntax
-	if strings.HasPrefix(s, "${") && strings.HasSuffix(s, "}") {
-		inner := s[2 : len(s)-1]
-		// Check for default value syntax: ${VAR:-default}
-		if idx := strings.Index(inner, ":-"); idx != -1 {
-			varName := inner[:idx]
-			defaultVal := inner[idx+2:]
-			if val := os.Getenv(varName); val != "" {
-				return val
-			}
-			return defaultVal
-		}
-		// Simple ${VAR} syntax
-		return os.Getenv(inner)
-	}
-
-	// Handle $VAR syntax (must be the entire string)
-	if strings.HasPrefix(s, "$") && !strings.ContainsAny(s[1:], " \t${}") {
-		return os.Getenv(s[1:])
-	}
-
-	// Return as-is if no env var pattern detected
-	return s
+	return os.ExpandEnv(s)
 }
 
 // ToTemporalConfig converts config.ConnectionConfig to temporal-compatible format.
