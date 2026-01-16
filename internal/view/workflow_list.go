@@ -261,6 +261,10 @@ func (wl *WorkflowList) Start() {
 				return true
 			}
 			return false
+		}).
+		OnRune('o', func(e *tcell.EventKey) bool {
+			wl.showWorkflowGraph()
+			return true
 		})
 
 	wl.table.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
@@ -314,6 +318,7 @@ func (wl *WorkflowList) Hints() []KeyHint {
 	hints = append(hints,
 		KeyHint{Key: "L", Description: "Load Filter"},
 		KeyHint{Key: "d", Description: "Diff"},
+		KeyHint{Key: "o", Description: "Overview"},
 		KeyHint{Key: "v", Description: "Select Mode"},
 		KeyHint{Key: "W", Description: "Signal+Start"},
 		KeyHint{Key: "y", Description: "Copy ID"},

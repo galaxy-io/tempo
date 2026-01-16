@@ -125,6 +125,15 @@ type Provider interface {
 
 	// GetResetPoints returns valid reset points for a workflow execution.
 	GetResetPoints(ctx context.Context, namespace, workflowID, runID string) ([]ResetPoint, error)
+
+	// Workflow Relationship Operations
+
+	// GetWorkflowRelationships returns the complete relationship graph for a workflow.
+	// depth controls how many levels of children to fetch (1 = immediate children only).
+	GetWorkflowRelationships(ctx context.Context, namespace, workflowID, runID string, depth int) (*WorkflowRelationships, error)
+
+	// GetChildWorkflows returns immediate child workflows spawned by a workflow.
+	GetChildWorkflows(ctx context.Context, namespace, workflowID, runID string) ([]Workflow, error)
 }
 
 // ListOptions configures workflow list queries.
@@ -320,4 +329,32 @@ type SignalWithStartRequest struct {
 	SignalName    string
 	SignalInput   []byte // JSON-encoded signal input
 	WorkflowInput []byte // JSON-encoded workflow input
+}
+
+// WorkflowRelationships contains all relationship data for a workflow.
+type WorkflowRelationships struct {
+	Current         *Workflow
+	Parent          *Workflow
+	Children        []*WorkflowNode
+	ContinuedFrom   *Workflow
+	ContinuedTo     *Workflow
+	IncomingSignals []WorkflowSignal
+	OutgoingSignals []WorkflowSignal
+}
+
+// WorkflowNode represents a workflow in the relationship tree with its children.
+type WorkflowNode struct {
+	Workflow
+	Children []*WorkflowNode // Nested children for tree building
+	EdgeType string          // "child", "signal", "continue"
+	Depth    int             // Depth in the relationship tree
+}
+
+// WorkflowSignal represents a signal sent between workflows.
+type WorkflowSignal struct {
+	SignalName     string
+	FromWorkflowID string
+	ToWorkflowID   string
+	Time           time.Time
+	Input          string
 }

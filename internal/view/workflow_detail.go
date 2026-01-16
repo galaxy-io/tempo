@@ -685,6 +685,10 @@ func (wd *WorkflowDetail) Start() {
 		OnRune('g', func(e *tcell.EventKey) bool {
 			wd.jumpToChildWorkflow()
 			return true
+		}).
+		OnRune('o', func(e *tcell.EventKey) bool {
+			wd.showWorkflowGraph()
+			return true
 		})
 
 	wd.eventTable.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
@@ -2050,6 +2054,13 @@ func (wd *WorkflowDetail) jumpToChildWorkflow() {
 
 	// Navigate to the child workflow
 	wd.app.NavigateToWorkflowDetail(ev.ChildWorkflowID, ev.ChildRunID)
+}
+
+func (wd *WorkflowDetail) showWorkflowGraph() {
+	if wd.workflow == nil {
+		return
+	}
+	wd.app.NavigateToWorkflowGraph(wd.workflow)
 }
 
 // hasChildWorkflowInfo returns true if the selected event is a child workflow event with navigation info.

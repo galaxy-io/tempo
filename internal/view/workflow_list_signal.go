@@ -132,3 +132,14 @@ func (wl *WorkflowList) startDiff() {
 	wf := wl.workflows[row]
 	wl.app.NavigateToWorkflowDiff(&wf, nil)
 }
+
+// showWorkflowGraph opens the workflow relationship graph view for the selected workflow.
+func (wl *WorkflowList) showWorkflowGraph() {
+	row := wl.table.SelectedRow()
+	if row < 0 || row >= len(wl.workflows) {
+		return
+	}
+
+	wf := wl.workflows[row]
+	wl.app.NavigateToWorkflowGraph(&wf)
+}
