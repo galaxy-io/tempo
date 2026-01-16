@@ -24,16 +24,60 @@ type ConnectionConfig struct {
 	Address   string    `yaml:"address"`
 	Namespace string    `yaml:"namespace"`
 	TLS       TLSConfig `yaml:"tls,omitempty"`
+	APIKey    string    `yaml:"api_key,omitempty"` // For Temporal Cloud API key authentication
+}
+
+// ExpandEnv expands environment variables in sensitive fields.
+// Supports ${VAR}, $VAR, and ${VAR:-default} syntax.
+func (c ConnectionConfig) ExpandEnv() ConnectionConfig {
+	return ConnectionConfig{
+		Address:   c.Address,
+		Namespace: c.Namespace,
+		TLS:       c.TLS,
+		APIKey:    expandEnvVar(c.APIKey),
+	}
+}
+
+// expandEnvVar expands environment variable references in a string.
+// Supports ${VAR}, $VAR, and ${VAR:-default} syntax.
+func expandEnvVar(s string) string {
+	if s == "" {
+		return s
+	}
+
+	// Handle ${VAR} and ${VAR:-default} syntax
+	if strings.HasPrefix(s, "${") && strings.HasSuffix(s, "}") {
+		inner := s[2 : len(s)-1]
+		// Check for default value syntax: ${VAR:-default}
+		if idx := strings.Index(inner, ":-"); idx != -1 {
+			varName := inner[:idx]
+			defaultVal := inner[idx+2:]
+			if val := os.Getenv(varName); val != "" {
+				return val
+			}
+			return defaultVal
+		}
+		// Simple ${VAR} syntax
+		return os.Getenv(inner)
+	}
+
+	// Handle $VAR syntax (must be the entire string)
+	if strings.HasPrefix(s, "$") && !strings.ContainsAny(s[1:], " \t${}") {
+		return os.Getenv(s[1:])
+	}
+
+	// Return as-is if no env var pattern detected
+	return s
 }
 
 // ToTemporalConfig converts config.ConnectionConfig to temporal-compatible format.
-// Returns address, namespace, and TLS fields as separate values.
-func (c ConnectionConfig) ToTemporalConfig() (address, namespace, tlsCert, tlsKey, tlsCA, tlsServerName string, tlsSkipVerify bool) {
-	return c.Address, c.Namespace, c.TLS.Cert, c.TLS.Key, c.TLS.CA, c.TLS.ServerName, c.TLS.SkipVerify
+// Returns address, namespace, TLS fields, and API key as separate values.
+func (c ConnectionConfig) ToTemporalConfig() (address, namespace, tlsCert, tlsKey, tlsCA, tlsServerName string, tlsSkipVerify bool, apiKey string) {
+	return c.Address, c.Namespace, c.TLS.Cert, c.TLS.Key, c.TLS.CA, c.TLS.ServerName, c.TLS.SkipVerify, c.APIKey
 }
 
 // FromTemporalConfig creates a ConnectionConfig from temporal-style flat fields.
-func FromTemporalConfig(address, namespace, tlsCert, tlsKey, tlsCA, tlsServerName string, tlsSkipVerify bool) ConnectionConfig {
+func FromTemporalConfig(address, namespace, tlsCert, tlsKey, tlsCA, tlsServerName string, tlsSkipVerify bool, apiKey string) ConnectionConfig {
 	return ConnectionConfig{
 		Address:   address,
 		Namespace: namespace,
@@ -44,6 +88,7 @@ func FromTemporalConfig(address, namespace, tlsCert, tlsKey, tlsCA, tlsServerNam
 			ServerName: tlsServerName,
 			SkipVerify: tlsSkipVerify,
 		},
+		APIKey: apiKey,
 	}
 }
 
