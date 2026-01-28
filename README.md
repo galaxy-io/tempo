@@ -1,6 +1,14 @@
+<div align="center">
+
 # tempo
 
 A [Temporal](https://temporal.io) TUI that matches your rhythm
+
+[![GitHub Release](https://img.shields.io/github/v/release/galaxy-io/tempo)](https://github.com/galaxy-io/tempo/releases)
+[![License](https://img.shields.io/github/license/galaxy-io/tempo)](https://github.com/galaxy-io/tempo/blob/main/LICENSE)
+![GitHub Downloads](https://img.shields.io/github/downloads/galaxy-io/tempo/total)
+
+</div>
 
 <p align="center">
   <img src="./assets/tempo-demo.gif" alt="Tempo Demo" width="800">
@@ -9,6 +17,7 @@ A [Temporal](https://temporal.io) TUI that matches your rhythm
 ## Features
 
 **Workflow Management**
+
 - Browse workflows across namespaces
 - View workflow details, inputs, outputs, and metadata
 - Inspect full event history with tree and timeline views
@@ -17,20 +26,24 @@ A [Temporal](https://temporal.io) TUI that matches your rhythm
 - Advanced search with visibility queries and saved filters
 
 **Namespace Operations**
+
 - List and browse all namespaces
 - View namespace configuration and details
 - Quick namespace switching
 
 **Task Queues & Schedules**
+
 - Monitor task queue activity
 - View and manage schedules
 
 **Connection Profiles**
+
 - Save multiple Temporal server configurations
 - TLS/mTLS support with certificate paths
 - Quick profile switching with `P` key
 
 **Customization**
+
 - 26 built-in color themes (dark and light variants)
 - Themes include: TokyoNight, Catppuccin, Dracula, Nord, Gruvbox, One Dark, Solarized, Rosé Pine, Kanagawa, Everforest, Monokai, GitHub
 - Live theme preview while selecting
@@ -67,17 +80,17 @@ tempo --address localhost:7233 // default dev server address loads without flag
 
 ### Command Line Flags
 
-| Flag | Description |
-|------|-------------|
-| `--address` | Temporal server address (host:port) |
-| `--namespace` | Default namespace |
-| `--profile` | Connection profile name (from config) |
-| `--tls-cert` | Path to TLS certificate |
-| `--tls-key` | Path to TLS private key |
-| `--tls-ca` | Path to CA certificate |
-| `--tls-server-name` | Server name for TLS verification |
-| `--tls-skip-verify` | Skip TLS verification (insecure) |
-| `--theme` | Theme name |
+| Flag                | Description                           |
+| ------------------- | ------------------------------------- |
+| `--address`         | Temporal server address (host:port)   |
+| `--namespace`       | Default namespace                     |
+| `--profile`         | Connection profile name (from config) |
+| `--tls-cert`        | Path to TLS certificate               |
+| `--tls-key`         | Path to TLS private key               |
+| `--tls-ca`          | Path to CA certificate                |
+| `--tls-server-name` | Server name for TLS verification      |
+| `--tls-skip-verify` | Skip TLS verification (insecure)      |
+| `--theme`           | Theme name                            |
 
 ### Keybindings
 
@@ -137,6 +150,7 @@ profiles:
 26 themes are available, organized by color scheme family:
 
 **Dark Themes**
+
 - `tokyonight-night`, `tokyonight-storm`, `tokyonight-moon`
 - `catppuccin-mocha`, `catppuccin-macchiato`, `catppuccin-frappe`
 - `dracula`
@@ -151,6 +165,7 @@ profiles:
 - `github-dark`
 
 **Light Themes**
+
 - `tokyonight-day`
 - `catppuccin-latte`
 - `dracula-light`
@@ -170,10 +185,10 @@ Press `T` to open the theme selector with live preview.
 
 MIT License - see [LICENSE](LICENSE) for details.
 
-
 ## Ways to Contribute
 
 You can contribute by:
+
 - reporting bugs
 - Proposing features or design improvements
 - Improving documentation
