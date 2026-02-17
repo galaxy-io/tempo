@@ -227,9 +227,8 @@ func (a *App) setup() {
 	})
 
 	// Create and push the home view
-	// If using API key auth, skip namespace list and go directly to workflows
-	// (API keys are typically namespace-scoped and can't list all namespaces)
-	if a.provider != nil && a.provider.Config().APIKey != "" {
+	// If a namespace is defined in the connection, skip namespace list and go directly to workflows
+	if a.provider != nil && a.provider.Config().Namespace != "" {
 		wl := NewWorkflowList(a, a.currentNS)
 		a.app.Pages().Push(wl)
 	} else {
@@ -1117,9 +1116,8 @@ func (a *App) SwitchProfile(name string) {
 func (a *App) reinitializeViews() {
 	a.app.Pages().Clear()
 
-	// If using API key auth, skip namespace list and go directly to workflows
-	// (API keys are typically namespace-scoped and can't list all namespaces)
-	if a.provider != nil && a.provider.Config().APIKey != "" {
+	// If a namespace is defined in the connection, skip namespace list and go directly to workflows
+	if a.provider != nil && a.provider.Config().Namespace != "" {
 		wl := NewWorkflowList(a, a.currentNS)
 		a.app.Pages().Push(wl)
 		a.app.SetFocus(wl)
