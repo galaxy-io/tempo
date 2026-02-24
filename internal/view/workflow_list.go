@@ -305,17 +305,7 @@ func (wl *WorkflowList) Start() {
 		return event
 	})
 
-	if wl.preloaded {
-		// Defer populateTable so layout dimensions are available after first draw.
-		// Use a goroutine to avoid deadlock when Start() is called from within QueueUpdateDraw.
-		go func() {
-			wl.app.JigApp().QueueUpdateDraw(func() {
-				wl.populateTable()
-			})
-		}()
-	} else {
-		wl.loadData()
-	}
+	wl.loadData()
 }
 
 // Stop is called when the view is deactivated.
