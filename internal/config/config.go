@@ -19,12 +19,31 @@ type TLSConfig struct {
 	SkipVerify bool   `yaml:"skip_verify,omitempty"`
 }
 
+// CommandOutputType defines how command output should be displayed.
+type CommandOutputType string
+
+const (
+	OutputLog       CommandOutputType = "log"
+	OutputJSON      CommandOutputType = "json"
+	OutputWorkflows CommandOutputType = "workflows"
+	OutputWorkflow  CommandOutputType = "workflow"
+)
+
+// CommandConfig defines a user-configured command.
+type CommandConfig struct {
+	Description string            `yaml:"description,omitempty"`
+	Cmd         string            `yaml:"cmd"`
+	Output      CommandOutputType `yaml:"output,omitempty"`
+	Confirm     bool              `yaml:"confirm,omitempty"`
+}
+
 // ConnectionConfig holds Temporal connection settings.
 type ConnectionConfig struct {
-	Address   string    `yaml:"address"`
-	Namespace string    `yaml:"namespace"`
-	TLS       TLSConfig `yaml:"tls,omitempty"`
-	APIKey    string    `yaml:"api_key,omitempty"` // For Temporal Cloud API key authentication
+	Address   string                    `yaml:"address"`
+	Namespace string                    `yaml:"namespace"`
+	TLS       TLSConfig                 `yaml:"tls,omitempty"`
+	APIKey    string                    `yaml:"api_key,omitempty"` // For Temporal Cloud API key authentication
+	Commands  map[string]CommandConfig  `yaml:"commands,omitempty"`
 }
 
 // ExpandEnv expands environment variables in sensitive fields.
@@ -35,6 +54,7 @@ func (c ConnectionConfig) ExpandEnv() ConnectionConfig {
 		Namespace: c.Namespace,
 		TLS:       c.TLS,
 		APIKey:    expandEnvVar(c.APIKey),
+		Commands:  c.Commands,
 	}
 }
 
@@ -80,6 +100,17 @@ type Config struct {
 	Profiles      map[string]ConnectionConfig `yaml:"profiles,omitempty"`
 	SavedFilters  []SavedFilter               `yaml:"saved_filters,omitempty"`
 	CheckUpdates  *bool                       `yaml:"check_updates,omitempty"`
+	HelpStyle     string                      `yaml:"help_style,omitempty"` // "modal" (default) or "sheet"
+	Commands      map[string]CommandConfig    `yaml:"commands,omitempty"`
+}
+
+// GetHelpStyle returns the configured help display style.
+// Returns "sheet" if explicitly set, otherwise "modal" (default).
+func (c *Config) GetHelpStyle() string {
+	if c.HelpStyle == "sheet" {
+		return "sheet"
+	}
+	return "modal"
 }
 
 // ShouldCheckUpdates returns whether update checking is enabled.
@@ -399,6 +430,32 @@ func loadThemeFile(path string) (*ParsedTheme, error) {
 	}
 
 	return theme.Parse()
+}
+
+// GetMergedCommands returns commands merged from global and profile-level config.
+// Profile commands override global commands with the same name.
+func (c *Config) GetMergedCommands(profileName string) map[string]CommandConfig {
+	merged := make(map[string]CommandConfig)
+	for name, cmd := range c.Commands {
+		merged[name] = cmd
+	}
+	if profile, ok := c.Profiles[profileName]; ok {
+		for name, cmd := range profile.Commands {
+			merged[name] = cmd
+		}
+	}
+	return merged
+}
+
+// ListCommandNames returns a sorted list of available command names for a profile.
+func (c *Config) ListCommandNames(profileName string) []string {
+	merged := c.GetMergedCommands(profileName)
+	names := make([]string, 0, len(merged))
+	for name := range merged {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // ValidateTheme checks if a theme name is valid.

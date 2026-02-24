@@ -626,6 +626,15 @@ func getEventNameDetail(ev *temporal.EnhancedHistoryEvent) string {
 	return ""
 }
 
+// CommandContext returns the workflow ID, run ID, and type for command variable expansion.
+func (wd *WorkflowDetail) CommandContext() (workflowID, runID, workflowType string) {
+	wfType := ""
+	if wd.workflow != nil {
+		wfType = wd.workflow.Type
+	}
+	return wd.workflowID, wd.runID, wfType
+}
+
 // Name returns the view name.
 func (wd *WorkflowDetail) Name() string {
 	return "workflow-detail"

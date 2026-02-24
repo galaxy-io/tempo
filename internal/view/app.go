@@ -14,6 +14,7 @@ import (
 	"github.com/atterpac/jig/nav"
 	"github.com/atterpac/jig/theme"
 	"github.com/atterpac/jig/theme/themes"
+	"github.com/galaxy-io/tempo/internal/command"
 	"github.com/galaxy-io/tempo/internal/config"
 	"github.com/galaxy-io/tempo/internal/temporal"
 	"github.com/galaxy-io/tempo/internal/update"
@@ -123,15 +124,7 @@ func (a *App) setup() {
 	// Set up command bar callbacks
 	a.statusBar.SetOnCommandSubmit(func(text string) {
 		a.statusBar.ExitCommandMode()
-		text = strings.TrimSpace(text)
-		if strings.HasPrefix(text, "profile") {
-			args := strings.TrimPrefix(text, "profile")
-			a.handleProfileCommand(strings.TrimSpace(args))
-		}
-		// Restore focus to current view
-		if current := a.app.Pages().Current(); current != nil {
-			a.app.SetFocus(current)
-		}
+		a.handleCommandInput(text)
 	})
 
 	a.statusBar.SetOnCommandCancel(func() {
@@ -189,7 +182,11 @@ func (a *App) setup() {
 
 		// Help (works everywhere except modals)
 		if event.Rune() == '?' && !isModalPage {
-			a.showHelp()
+			if a.config != nil && a.config.GetHelpStyle() == "sheet" {
+				a.showHintSheet()
+			} else {
+				a.showHelp()
+			}
 			return nil
 		}
 
@@ -687,6 +684,64 @@ func (a *App) closeHelp() {
 	a.app.Pages().DismissModal()
 }
 
+func (a *App) showHintSheet() {
+	// Gather hints: global + current view
+	allHints := []components.KeyHint{
+		{Key: "?", Description: "Help"},
+		{Key: "T", Description: "Theme"},
+		{Key: "P", Description: "Profile"},
+		{Key: "Esc", Description: "Back"},
+		{Key: "q", Description: "Quit"},
+	}
+
+	current := a.app.Pages().Current()
+	if current != nil {
+		viewHints := current.Hints()
+		if len(viewHints) > 0 {
+			allHints = append(allHints, viewHints...)
+		}
+	}
+
+	// Create hint grid and calculate height
+	grid := components.NewHintGrid()
+	grid.SetHints(allHints)
+
+	// Estimate width for height calculation (use a reasonable default).
+	// The actual width will be available at draw time, but we need an estimate
+	// for the sheet height. Use 80 as a conservative estimate; the grid reflows on draw.
+	estimatedWidth := 80
+	gridHeight := grid.GetPreferredHeight(estimatedWidth)
+	// Panel border (2) + hint bar (1) = 3 lines of overhead
+	sheetHeight := gridHeight + 3
+
+	sheet := components.NewBottomSheet(components.BottomSheetConfig{
+		Title:    "Keybindings",
+		Height:   sheetHeight,
+		Backdrop: true,
+	})
+
+	sheet.SetContent(grid)
+	sheet.SetHints([]components.KeyHint{
+		{Key: "Esc/?", Description: "Close"},
+	})
+
+	sheet.SetOnClose(func() {
+		a.app.Pages().DismissModal()
+	})
+
+	// Wrap input to also dismiss on '?' (toggle behavior)
+	grid.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		if event.Rune() == '?' {
+			a.app.Pages().DismissModal()
+			return nil
+		}
+		return event
+	})
+
+	a.app.Pages().Push(sheet)
+	a.app.SetFocus(sheet)
+}
+
 func (a *App) closeThemeSelector() {
 	a.app.Pages().DismissModal()
 }
@@ -738,6 +793,28 @@ func (a *App) showDebugScreen() {
 func (a *App) showCommandBar() {
 	a.statusBar.SetCommandPrompt(": ")
 	a.statusBar.SetCommandPlaceholder("command...")
+
+	// Set up tab completion with built-in + user commands
+	a.statusBar.SetOnComplete(func(input string) []string {
+		builtins := []string{"profile"}
+		var userCmds []string
+		if a.config != nil {
+			userCmds = a.config.ListCommandNames(a.activeProfile)
+		}
+		all := append(builtins, userCmds...)
+
+		if input == "" {
+			return all
+		}
+		var matches []string
+		for _, name := range all {
+			if strings.HasPrefix(name, input) {
+				matches = append(matches, name)
+			}
+		}
+		return matches
+	})
+
 	a.statusBar.EnterCommandMode()
 	a.app.SetFocus(a.statusBar.GetCommandInput())
 }
@@ -1268,15 +1345,7 @@ func (a *App) restoreDefaultCommandCallbacks() {
 
 	a.statusBar.SetOnCommandSubmit(func(text string) {
 		a.statusBar.ExitCommandMode()
-		text = strings.TrimSpace(text)
-		if strings.HasPrefix(text, "profile") {
-			args := strings.TrimPrefix(text, "profile")
-			a.handleProfileCommand(strings.TrimSpace(args))
-		}
-		// Restore focus to current view
-		if current := a.app.Pages().Current(); current != nil {
-			a.app.SetFocus(current)
-		}
+		a.handleCommandInput(text)
 	})
 
 	a.statusBar.SetOnCommandCancel(func() {
@@ -1286,6 +1355,319 @@ func (a *App) restoreDefaultCommandCallbacks() {
 			a.app.SetFocus(current)
 		}
 	})
+}
+
+// CommandContextProvider is implemented by views that can provide workflow context for commands.
+type CommandContextProvider interface {
+	CommandContext() (workflowID, runID, workflowType string)
+}
+
+// handleCommandInput processes command bar input, dispatching to built-in or user commands.
+func (a *App) handleCommandInput(text string) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		if current := a.app.Pages().Current(); current != nil {
+			a.app.SetFocus(current)
+		}
+		return
+	}
+
+	fields := strings.Fields(text)
+	cmdName := fields[0]
+	args := fields[1:]
+
+	// Check user-defined commands first
+	if a.config != nil {
+		commands := a.config.GetMergedCommands(a.activeProfile)
+		if cfg, ok := commands[cmdName]; ok {
+			a.executeUserCommand(cmdName, cfg, args)
+			return
+		}
+	}
+
+	// Built-in commands
+	if strings.HasPrefix(text, "profile") {
+		cmdArgs := strings.TrimPrefix(text, "profile")
+		a.handleProfileCommand(strings.TrimSpace(cmdArgs))
+	} else {
+		a.toasts.Warning(fmt.Sprintf("Unknown command: %s", cmdName))
+	}
+
+	// Restore focus to current view
+	a.refocusCurrent()
+}
+
+// buildCommandContext resolves all context variables from current app state.
+func (a *App) buildCommandContext(args []string) command.Context {
+	ctx := command.Context{
+		Namespace: a.CurrentNamespace(),
+		Profile:   a.activeProfile,
+		Args:      args,
+	}
+
+	// Get connection details from active profile config
+	if a.config != nil {
+		if profile, ok := a.config.GetProfile(a.activeProfile); ok {
+			expanded := profile.ExpandEnv()
+			ctx.Address = expanded.Address
+			ctx.TLSCertPath = expanded.TLS.Cert
+			ctx.TLSKeyPath = expanded.TLS.Key
+			ctx.TLSCAPath = expanded.TLS.CA
+			ctx.TLSServerName = expanded.TLS.ServerName
+			ctx.TLSSkipVerify = expanded.TLS.SkipVerify
+			ctx.APIKey = expanded.APIKey
+		}
+	}
+
+	// Get workflow info from current view if it implements CommandContextProvider.
+	// Walk the stack from top to bottom to find the first provider with data.
+	stack := a.app.Pages().GetStack()
+	for i := len(stack) - 1; i >= 0; i-- {
+		if provider, ok := stack[i].(CommandContextProvider); ok {
+			wfID, rID, wfType := provider.CommandContext()
+			if wfID != "" {
+				ctx.WorkflowID = wfID
+				ctx.RunID = rID
+				ctx.WorkflowType = wfType
+				break
+			}
+		}
+	}
+
+	return ctx
+}
+
+// refocusCurrent restores focus to the current view.
+func (a *App) refocusCurrent() {
+	if current := a.app.Pages().Current(); current != nil {
+		a.app.SetFocus(current)
+	}
+}
+
+// executeUserCommand expands the command template, optionally confirms, then runs it.
+func (a *App) executeUserCommand(name string, cfg config.CommandConfig, args []string) {
+	cmdCtx := a.buildCommandContext(args)
+
+	expandedCmd, err := command.ExpandCmd(cfg.Cmd, cmdCtx)
+	if err != nil {
+		a.toasts.Error(fmt.Sprintf("Command %q: %s", name, err))
+		a.refocusCurrent()
+		return
+	}
+
+	// Inject connection flags for temporal CLI commands
+	expandedCmd = command.InjectConnectionFlags(expandedCmd, cmdCtx)
+
+	if cfg.Confirm {
+		a.showCommandConfirm(name, cfg, expandedCmd)
+		return
+	}
+
+	a.runCommand(name, expandedCmd, cfg)
+}
+
+// showCommandConfirm shows a confirmation modal before executing a command.
+func (a *App) showCommandConfirm(name string, cfg config.CommandConfig, expandedCmd string) {
+	form := components.NewFormBuilder().
+		OnSubmit(func(values map[string]any) {
+			a.app.Pages().DismissModal()
+			a.runCommand(name, expandedCmd, cfg)
+		}).
+		OnCancel(func() {
+			a.app.Pages().DismissModal()
+			if current := a.app.Pages().Current(); current != nil {
+				a.app.SetFocus(current)
+			}
+		}).
+		Build()
+
+	contentFlex := tview.NewFlex().SetDirection(tview.FlexRow)
+	contentFlex.SetBackgroundColor(theme.Bg())
+
+	infoText := tview.NewTextView().
+		SetDynamicColors(true).
+		SetTextAlign(tview.AlignLeft)
+	infoText.SetBackgroundColor(theme.Bg())
+	infoText.SetText(fmt.Sprintf("[%s]Command:[-] [%s]%s[-]\n\n[%s]%s[-]",
+		theme.TagFgDim(), theme.TagAccent(), name,
+		theme.TagFg(), expandedCmd))
+
+	contentFlex.AddItem(infoText, 4, 0, false)
+	contentFlex.AddItem(form, 0, 1, true)
+
+	title := fmt.Sprintf("Confirm: %s", name)
+	if cfg.Description != "" {
+		title = fmt.Sprintf("Confirm: %s", cfg.Description)
+	}
+
+	modal := components.NewModal(components.ModalConfig{
+		Title:    title,
+		Width:    70,
+		Height:   12,
+		Backdrop: true,
+	})
+	modal.SetContent(contentFlex)
+	modal.SetHints([]components.KeyHint{
+		{Key: "Ctrl+S", Description: "Confirm"},
+		{Key: "Esc", Description: "Cancel"},
+	})
+
+	a.app.Pages().Push(modal)
+	a.app.SetFocus(form)
+}
+
+// runCommand dispatches to the appropriate output handler based on config.
+func (a *App) runCommand(name, expandedCmd string, cfg config.CommandConfig) {
+	outputType := cfg.Output
+	if outputType == "" {
+		outputType = config.OutputLog
+	}
+
+	switch outputType {
+	case config.OutputLog:
+		a.runCommandLog(name, expandedCmd, cfg)
+	case config.OutputJSON:
+		a.runCommandJSON(name, expandedCmd, cfg)
+	case config.OutputWorkflows:
+		a.runCommandWorkflows(name, expandedCmd, cfg)
+	case config.OutputWorkflow:
+		a.runCommandWorkflow(name, expandedCmd, cfg)
+	default:
+		a.runCommandLog(name, expandedCmd, cfg)
+	}
+}
+
+// runCommandLog creates a CommandOutputView with LogViewer, pushes it, and streams output.
+func (a *App) runCommandLog(name, expandedCmd string, cfg config.CommandConfig) {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	lv := components.NewLogViewer()
+	description := cfg.Description
+	if description == "" {
+		description = name
+	}
+	view := NewCommandOutputView(a, name, description, lv, cancel)
+
+	a.app.Pages().Push(view)
+	a.app.SetFocus(lv)
+
+	go func() {
+		lv.AddEntry(components.LogEntry{
+			Level:   components.LogLevelInfo,
+			Message: "$ " + expandedCmd,
+		})
+
+		err := command.RunStreaming(ctx, expandedCmd, func(line string) {
+			a.app.QueueUpdateDraw(func() {
+				lv.AddEntry(components.LogEntry{
+					Level:   components.LogLevelInfo,
+					Message: line,
+				})
+			})
+		})
+
+		a.app.QueueUpdateDraw(func() {
+			if err != nil && ctx.Err() == nil {
+				lv.AddEntry(components.LogEntry{
+					Level:   components.LogLevelError,
+					Message: fmt.Sprintf("Error: %s", err),
+				})
+			} else {
+				lv.AddEntry(components.LogEntry{
+					Level:   components.LogLevelInfo,
+					Message: "--- Done ---",
+				})
+			}
+		})
+	}()
+}
+
+// runCommandJSON runs a command and displays the result in a CodeView with JSON highlighting.
+func (a *App) runCommandJSON(name, expandedCmd string, cfg config.CommandConfig) {
+	ctx, cancel := context.WithCancel(context.Background())
+
+	cv := components.NewCodeView().SetLanguage(components.LangJSON)
+	cv.SetCode("Running...")
+
+	description := cfg.Description
+	if description == "" {
+		description = name
+	}
+	view := NewCommandOutputView(a, name, description, cv, cancel)
+
+	a.app.Pages().Push(view)
+	a.app.SetFocus(cv)
+
+	go func() {
+		output, err := command.Run(ctx, expandedCmd)
+		a.app.QueueUpdateDraw(func() {
+			if err != nil && ctx.Err() == nil {
+				cv.SetCode(fmt.Sprintf("Error: %s\n\n%s", err, output))
+			} else {
+				// Try to pretty-print JSON
+				formatted := formatJSONPretty(output)
+				cv.SetCode(formatted)
+			}
+		})
+	}()
+}
+
+// runCommandWorkflows runs a command, parses JSONL output, and pushes a WorkflowList.
+func (a *App) runCommandWorkflows(name, expandedCmd string, _ config.CommandConfig) {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		output, runErr := command.Run(ctx, expandedCmd)
+
+		// Try to parse output even on non-zero exit (CLI may still produce valid JSONL)
+		workflows, parseErr := command.ParseWorkflowsOutput(output)
+		if parseErr != nil {
+			// If both run and parse failed, show the run error (more useful)
+			errMsg := parseErr.Error()
+			if runErr != nil {
+				errMsg = runErr.Error()
+			}
+			a.app.QueueUpdateDraw(func() {
+				a.toasts.Error(fmt.Sprintf("Command %q: %s", name, errMsg))
+				a.refocusCurrent()
+			})
+			return
+		}
+
+		a.app.QueueUpdateDraw(func() {
+			wl := NewWorkflowListWithData(a, a.CurrentNamespace(), workflows)
+			a.app.Pages().Push(wl)
+			a.app.SetFocus(wl)
+		})
+	}()
+}
+
+// runCommandWorkflow runs a command, parses workflow ID/run ID, and navigates to WorkflowDetail.
+func (a *App) runCommandWorkflow(name, expandedCmd string, _ config.CommandConfig) {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		output, runErr := command.Run(ctx, expandedCmd)
+
+		workflowID, runID, parseErr := command.ParseWorkflowOutput(output)
+		if parseErr != nil {
+			errMsg := parseErr.Error()
+			if runErr != nil {
+				errMsg = runErr.Error()
+			}
+			a.app.QueueUpdateDraw(func() {
+				a.toasts.Error(fmt.Sprintf("Command %q: %s", name, errMsg))
+				a.refocusCurrent()
+			})
+			return
+		}
+
+		a.app.QueueUpdateDraw(func() {
+			a.NavigateToWorkflowDetail(workflowID, runID)
+		})
+	}()
 }
 
 // EscapeHandler is implemented by views that want to handle escape key.
