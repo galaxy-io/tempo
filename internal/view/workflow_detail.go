@@ -1071,100 +1071,19 @@ func (wd *WorkflowDetail) executeSignalWorkflow(signalName, input string) {
 	}()
 }
 
-// showStartWorkflow displays a modal for starting a new workflow execution pre-filled from the current workflow.
+// showStartWorkflow displays the start workflow modal pre-filled from the current workflow.
 func (wd *WorkflowDetail) showStartWorkflow() {
-	var prefillID, prefillType, prefillQueue, prefillInput string
+	var prefill startWorkflowPrefill
 	if wd.workflow != nil {
-		prefillID = wd.workflow.ID
-		prefillType = wd.workflow.Type
-		prefillQueue = wd.workflow.TaskQueue
-		prefillInput = wd.workflow.Input
+		prefill = startWorkflowPrefill{
+			WorkflowID:   wd.workflow.ID,
+			WorkflowType: wd.workflow.Type,
+			TaskQueue:    wd.workflow.TaskQueue,
+			Input:        wd.workflow.Input,
+		}
 	}
 
-	form := components.NewFormBuilder().
-		Text("workflowId", "Workflow ID").
-			Placeholder("Enter workflow ID").
-			Value(prefillID).
-			Validate(validators.Required()).
-			Done().
-		Text("workflowType", "Workflow Type").
-			Placeholder("Enter workflow type").
-			Value(prefillType).
-			Validate(validators.Required()).
-			Done().
-		Text("taskQueue", "Task Queue").
-			Placeholder("Enter task queue").
-			Value(prefillQueue).
-			Validate(validators.Required()).
-			Done().
-		Text("input", "Input (JSON, optional)").
-			Placeholder("{}").
-			Value(prefillInput).
-			Done().
-		OnSubmit(func(values map[string]any) {
-			workflowID := values["workflowId"].(string)
-			workflowType := values["workflowType"].(string)
-			taskQueue := values["taskQueue"].(string)
-			input := values["input"].(string)
-
-			wd.closeModal()
-			wd.executeStartWorkflow(workflowID, workflowType, taskQueue, input)
-		}).
-		OnCancel(func() {
-			wd.closeModal()
-		}).
-		Build()
-
-	modal := components.NewModal(components.ModalConfig{
-		Title:    fmt.Sprintf("%s Start Workflow", theme.IconInfo),
-		Width:    70,
-		Height:   18,
-		Backdrop: true,
-	})
-	modal.SetContent(form)
-	modal.SetHints([]components.KeyHint{
-		{Key: "Tab", Description: "Next field"},
-		{Key: "Ctrl+S", Description: "Execute"},
-		{Key: "Esc", Description: "Cancel"},
-	})
-
-	wd.app.JigApp().Pages().Push(modal)
-	wd.app.JigApp().SetFocus(form)
-}
-
-// executeStartWorkflow performs the StartWorkflow operation asynchronously.
-func (wd *WorkflowDetail) executeStartWorkflow(workflowID, workflowType, taskQueue, input string) {
-	provider := wd.app.Provider()
-	if provider == nil {
-		return
-	}
-
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-
-		req := temporal.StartWorkflowRequest{
-			WorkflowID:   workflowID,
-			WorkflowType: workflowType,
-			TaskQueue:    taskQueue,
-		}
-
-		if input != "" {
-			req.Input = []byte(input)
-		}
-
-		runID, err := provider.StartWorkflow(ctx, wd.app.CurrentNamespace(), req)
-
-		wd.app.JigApp().QueueUpdateDraw(func() {
-			if err != nil {
-				wd.showError(err)
-				return
-			}
-
-			wd.app.ShowToastSuccess(fmt.Sprintf("Workflow %s started", workflowID))
-			wd.app.NavigateToWorkflowDetail(workflowID, runID)
-		})
-	}()
+	showStartWorkflowModal(wd.app, prefill)
 }
 
 func (wd *WorkflowDetail) showResetSelector() {

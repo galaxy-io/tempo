@@ -11,38 +11,35 @@ import (
 	"github.com/galaxy-io/tempo/internal/temporal"
 )
 
-// showStartWorkflow displays a modal for starting a new workflow execution.
-func (wl *WorkflowList) showStartWorkflow() {
-	row := wl.table.SelectedRow()
+// startWorkflowPrefill holds the pre-fill values for the start workflow modal.
+type startWorkflowPrefill struct {
+	WorkflowID   string
+	WorkflowType string
+	TaskQueue    string
+	Input        string
+}
 
-	var prefillID, prefillType, prefillQueue, prefillInput string
-	if row >= 0 && row < len(wl.workflows) {
-		wf := wl.workflows[row]
-		prefillID = wf.ID
-		prefillType = wf.Type
-		prefillQueue = wf.TaskQueue
-		prefillInput = wf.Input
-	}
-
+// showStartWorkflowModal displays the start workflow form and executes it on submit.
+func showStartWorkflowModal(app *App, prefill startWorkflowPrefill) {
 	form := components.NewFormBuilder().
 		Text("workflowId", "Workflow ID").
 			Placeholder("Enter workflow ID").
-			Value(prefillID).
+			Value(prefill.WorkflowID).
 			Validate(validators.Required()).
 			Done().
 		Text("workflowType", "Workflow Type").
 			Placeholder("Enter workflow type").
-			Value(prefillType).
+			Value(prefill.WorkflowType).
 			Validate(validators.Required()).
 			Done().
 		Text("taskQueue", "Task Queue").
 			Placeholder("Enter task queue").
-			Value(prefillQueue).
+			Value(prefill.TaskQueue).
 			Validate(validators.Required()).
 			Done().
 		Text("input", "Input (JSON, optional)").
 			Placeholder("{}").
-			Value(prefillInput).
+			Value(prefill.Input).
 			Done().
 		OnSubmit(func(values map[string]any) {
 			workflowID := values["workflowId"].(string)
@@ -50,16 +47,16 @@ func (wl *WorkflowList) showStartWorkflow() {
 			taskQueue := values["taskQueue"].(string)
 			input := values["input"].(string)
 
-			wl.closeModal()
-			wl.executeStartWorkflow(workflowID, workflowType, taskQueue, input)
+			app.JigApp().Pages().DismissModal()
+			executeStartWorkflow(app, workflowID, workflowType, taskQueue, input)
 		}).
 		OnCancel(func() {
-			wl.closeModal()
+			app.JigApp().Pages().DismissModal()
 		}).
 		Build()
 
 	modal := components.NewModal(components.ModalConfig{
-		Title:    fmt.Sprintf("%s Start Workflow (%s)", theme.IconInfo, wl.namespace),
+		Title:    fmt.Sprintf("%s Start Workflow", theme.IconInfo),
 		Width:    70,
 		Height:   18,
 		Backdrop: true,
@@ -71,13 +68,13 @@ func (wl *WorkflowList) showStartWorkflow() {
 		{Key: "Esc", Description: "Cancel"},
 	})
 
-	wl.app.JigApp().Pages().Push(modal)
-	wl.app.JigApp().SetFocus(form)
+	app.JigApp().Pages().Push(modal)
+	app.JigApp().SetFocus(form)
 }
 
 // executeStartWorkflow performs the StartWorkflow operation asynchronously.
-func (wl *WorkflowList) executeStartWorkflow(workflowID, workflowType, taskQueue, input string) {
-	provider := wl.app.Provider()
+func executeStartWorkflow(app *App, workflowID, workflowType, taskQueue, input string) {
+	provider := app.Provider()
 	if provider == nil {
 		return
 	}
@@ -96,16 +93,34 @@ func (wl *WorkflowList) executeStartWorkflow(workflowID, workflowType, taskQueue
 			req.Input = []byte(input)
 		}
 
-		runID, err := provider.StartWorkflow(ctx, wl.namespace, req)
+		runID, err := provider.StartWorkflow(ctx, app.CurrentNamespace(), req)
 
-		wl.app.JigApp().QueueUpdateDraw(func() {
+		app.JigApp().QueueUpdateDraw(func() {
 			if err != nil {
-				ShowErrorModal(wl.app.JigApp(), "Start Workflow Failed", err.Error())
+				ShowErrorModal(app.JigApp(), "Start Workflow Failed", err.Error())
 				return
 			}
 
-			wl.app.ShowToastSuccess(fmt.Sprintf("Workflow %s started", workflowID))
-			wl.app.NavigateToWorkflowDetail(workflowID, runID)
+			app.ShowToastSuccess(fmt.Sprintf("Workflow %s started", workflowID))
+			app.NavigateToWorkflowDetail(workflowID, runID)
 		})
 	}()
+}
+
+// showStartWorkflow displays the start workflow modal pre-filled from the selected workflow.
+func (wl *WorkflowList) showStartWorkflow() {
+	row := wl.table.SelectedRow()
+
+	var prefill startWorkflowPrefill
+	if row >= 0 && row < len(wl.workflows) {
+		wf := wl.workflows[row]
+		prefill = startWorkflowPrefill{
+			WorkflowID:   wf.ID,
+			WorkflowType: wf.Type,
+			TaskQueue:    wf.TaskQueue,
+			Input:        wf.Input,
+		}
+	}
+
+	showStartWorkflowModal(wl.app, prefill)
 }
