@@ -101,7 +101,7 @@ func executeStartWorkflow(app *App, workflowID, workflowType, taskQueue, input s
 				return
 			}
 
-			app.ShowToastSuccess(fmt.Sprintf("Workflow %s started", workflowID))
+			app.ToastSuccess(fmt.Sprintf("Workflow %s started", workflowID))
 			app.NavigateToWorkflowDetail(workflowID, runID)
 		})
 	}()
