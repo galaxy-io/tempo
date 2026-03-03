@@ -180,7 +180,7 @@ func Load() (*Config, error) {
 }
 
 // loadExternalProfiles discovers Temporal CLI profiles and stores them
-// with the "temporal:" prefix to distinguish from native profiles.
+// with the "import:" prefix to distinguish from native profiles.
 func (c *Config) loadExternalProfiles() {
 	cliProfiles := LoadTemporalCLIProfiles()
 	if len(cliProfiles) == 0 {
