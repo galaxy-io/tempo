@@ -78,6 +78,10 @@ type Provider interface {
 	// SignalWorkflow sends a signal to a running workflow execution.
 	SignalWorkflow(ctx context.Context, namespace, workflowID, runID, signalName string, input []byte) error
 
+	// StartWorkflow starts a new workflow execution.
+	// Returns the run ID of the started workflow.
+	StartWorkflow(ctx context.Context, namespace string, req StartWorkflowRequest) (string, error)
+
 	// SignalWithStartWorkflow starts a workflow if it doesn't exist and sends a signal to it.
 	// Returns the run ID of the workflow.
 	SignalWithStartWorkflow(ctx context.Context, namespace string, req SignalWithStartRequest) (string, error)
@@ -320,6 +324,14 @@ type ResetPoint struct {
 	Timestamp   time.Time
 	Description string // Human-readable description (e.g., "Activity 'ProcessPayment' failed")
 	Reason      string // Why this is a valid reset point
+}
+
+// StartWorkflowRequest contains parameters for starting a new workflow execution.
+type StartWorkflowRequest struct {
+	WorkflowID   string
+	WorkflowType string
+	TaskQueue    string
+	Input        []byte // JSON-encoded workflow input
 }
 
 // SignalWithStartRequest contains parameters for starting a workflow with a signal.

@@ -695,6 +695,10 @@ func (wd *WorkflowDetail) Start() {
 			wd.jumpToChildWorkflow()
 			return true
 		}).
+		OnRune('N', func(e *tcell.EventKey) bool {
+			wd.showStartWorkflow()
+			return true
+		}).
 		OnRune('o', func(e *tcell.EventKey) bool {
 			wd.showWorkflowGraph()
 			return true
@@ -744,6 +748,7 @@ func (wd *WorkflowDetail) Hints() []KeyHint {
 	}
 
 	hints = append(hints,
+		KeyHint{Key: "N", Description: "Start"},
 		KeyHint{Key: "D", Description: "Delete"},
 		KeyHint{Key: "T", Description: "Theme"},
 		KeyHint{Key: "esc", Description: "Back"},
@@ -1064,6 +1069,21 @@ func (wd *WorkflowDetail) executeSignalWorkflow(signalName, input string) {
 			wd.loadData() // Refresh to show signal event
 		})
 	}()
+}
+
+// showStartWorkflow displays the start workflow modal pre-filled from the current workflow.
+func (wd *WorkflowDetail) showStartWorkflow() {
+	var prefill startWorkflowPrefill
+	if wd.workflow != nil {
+		prefill = startWorkflowPrefill{
+			WorkflowID:   wd.workflow.ID,
+			WorkflowType: wd.workflow.Type,
+			TaskQueue:    wd.workflow.TaskQueue,
+			Input:        wd.workflow.Input,
+		}
+	}
+
+	showStartWorkflowModal(wd.app, prefill)
 }
 
 func (wd *WorkflowDetail) showResetSelector() {

@@ -277,6 +277,10 @@ func (wl *WorkflowList) Start() {
 			}
 			return false
 		}).
+		OnRune('N', func(e *tcell.EventKey) bool {
+			wl.showStartWorkflow()
+			return true
+		}).
 		OnRune('W', func(e *tcell.EventKey) bool {
 			wl.showSignalWithStart()
 			return true
@@ -351,6 +355,7 @@ func (wl *WorkflowList) Hints() []KeyHint {
 		KeyHint{Key: "d", Description: "Diff"},
 		KeyHint{Key: "o", Description: "Overview"},
 		KeyHint{Key: "v", Description: "Select Mode"},
+		KeyHint{Key: "N", Description: "Start"},
 		KeyHint{Key: "W", Description: "Signal+Start"},
 		KeyHint{Key: "y", Description: "Copy ID"},
 		KeyHint{Key: "r", Description: "Refresh"},

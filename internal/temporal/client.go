@@ -1493,6 +1493,25 @@ func (c *Client) SignalWorkflow(ctx context.Context, namespace, workflowID, runI
 	return c.client.SignalWorkflow(ctx, workflowID, runID, signalName, input)
 }
 
+// StartWorkflow starts a new workflow execution.
+func (c *Client) StartWorkflow(ctx context.Context, namespace string, req StartWorkflowRequest) (string, error) {
+	opts := client.StartWorkflowOptions{
+		ID:        req.WorkflowID,
+		TaskQueue: req.TaskQueue,
+	}
+
+	args := []interface{}{}
+	if len(req.Input) > 0 {
+		args = append(args, req.Input)
+	}
+
+	run, err := c.client.ExecuteWorkflow(ctx, opts, req.WorkflowType, args...)
+	if err != nil {
+		return "", fmt.Errorf("failed to start workflow: %w", err)
+	}
+	return run.GetRunID(), nil
+}
+
 // SignalWithStartWorkflow starts a workflow if it doesn't exist and sends a signal to it.
 func (c *Client) SignalWithStartWorkflow(ctx context.Context, namespace string, req SignalWithStartRequest) (string, error) {
 	opts := client.StartWorkflowOptions{
