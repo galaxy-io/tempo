@@ -313,11 +313,16 @@ type ProfileModal struct {
 	table    *components.Table
 	profiles []string
 	active   string
+	cfg      *config.Config
 	onSelect func(string)
 	onNew    func()
 	onEdit   func(string)
 	onDelete func(string)
 	onClose  func()
+}
+
+func (m *ProfileModal) isExternal(name string) bool {
+	return m.cfg != nil && m.cfg.IsExternalProfile(name)
 }
 
 func NewProfileModal() *ProfileModal {
@@ -356,13 +361,19 @@ func (m *ProfileModal) setup() {
 		case 'e':
 			row := m.table.SelectedRow()
 			if row >= 0 && row < len(m.profiles) && m.onEdit != nil {
-				m.onEdit(m.profiles[row])
+				name := m.profiles[row]
+				if !m.isExternal(name) {
+					m.onEdit(name)
+				}
 			}
 			return nil
 		case 'd':
 			row := m.table.SelectedRow()
-			if row >= 0 && row < len(m.profiles) && m.profiles[row] != m.active && m.onDelete != nil {
-				m.onDelete(m.profiles[row])
+			if row >= 0 && row < len(m.profiles) && m.onDelete != nil {
+				name := m.profiles[row]
+				if name != m.active && !m.isExternal(name) {
+					m.onDelete(name)
+				}
 			}
 			return nil
 		}
@@ -384,12 +395,12 @@ func (m *ProfileModal) setup() {
 	})
 }
 
-func (m *ProfileModal) SetProfiles(profiles []string, active string) {
+func (m *ProfileModal) SetProfiles(profiles []string, active string, cfg *config.Config) {
 	m.profiles = profiles
 	m.active = active
+	m.cfg = cfg
 	m.table.ClearRows()
 
-	cfg, _ := config.Load()
 	currentIdx := 0
 
 	for i, name := range profiles {
@@ -398,13 +409,17 @@ func (m *ProfileModal) SetProfiles(profiles []string, active string) {
 			marker = "●"
 			currentIdx = i
 		}
+		displayName := name
+		if m.isExternal(name) {
+			displayName = fmt.Sprintf("[%s]%s[-]", theme.TagFgDim(), name)
+		}
 		address := ""
 		if cfg != nil {
 			if profile, ok := cfg.GetProfile(name); ok {
 				address = profile.Address
 			}
 		}
-		m.table.AddRow(marker, name, truncateMiddle(address, 25))
+		m.table.AddRow(marker, displayName, truncateMiddle(address, 25))
 	}
 
 	if len(profiles) > 0 {

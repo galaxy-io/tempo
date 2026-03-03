@@ -3,6 +3,7 @@ module github.com/galaxy-io/tempo
 go 1.25.2
 
 require (
+	github.com/BurntSushi/toml v1.6.0
 	github.com/atterpac/jig v0.1.3
 	github.com/creativeprojects/go-selfupdate v1.5.2
 	github.com/gdamore/tcell/v2 v2.13.4
@@ -14,7 +15,7 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 )
 
-// replace github.com/atterpac/jig => ../jig
+replace github.com/atterpac/jig => ../jig
 
 require (
 	code.gitea.io/sdk/gitea v0.22.1 // indirect

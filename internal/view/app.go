@@ -1052,7 +1052,7 @@ func (a *App) ShowProfileSelector() {
 	}
 
 	modal := NewProfileModal()
-	modal.SetProfiles(a.config.ListProfiles(), a.activeProfile)
+	modal.SetProfiles(a.config.ListProfiles(), a.activeProfile, a.config)
 	modal.SetOnSelect(func(name string) {
 		a.closeProfileSelector()
 		a.SwitchProfile(name)
@@ -1067,7 +1067,7 @@ func (a *App) ShowProfileSelector() {
 	})
 	modal.SetOnDelete(func(name string) {
 		a.deleteProfile(name)
-		modal.SetProfiles(a.config.ListProfiles(), a.activeProfile)
+		modal.SetProfiles(a.config.ListProfiles(), a.activeProfile, a.config)
 	})
 	modal.SetOnClose(func() {
 		a.closeProfileSelector()
@@ -1092,7 +1092,10 @@ func (a *App) showProfileForm(editName string) {
 
 	form.SetOnSave(func(name string, cfg config.ConnectionConfig) {
 		a.closeProfileForm()
-		a.config.SaveProfile(name, cfg)
+		if err := a.config.SaveProfile(name, cfg); err != nil {
+			// Log error but continue
+			return
+		}
 		if err := a.config.Save(); err != nil {
 			// Log error but continue
 		}
