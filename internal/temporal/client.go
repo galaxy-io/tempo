@@ -1490,7 +1490,7 @@ func (c *Client) TerminateWorkflow(ctx context.Context, namespace, workflowID, r
 
 // SignalWorkflow sends a signal to a running workflow execution.
 func (c *Client) SignalWorkflow(ctx context.Context, namespace, workflowID, runID, signalName string, input []byte) error {
-	return c.client.SignalWorkflow(ctx, workflowID, runID, signalName, input)
+	return c.client.SignalWorkflow(ctx, workflowID, runID, signalName, json.RawMessage(input))
 }
 
 // StartWorkflow starts a new workflow execution.
@@ -1502,7 +1502,7 @@ func (c *Client) StartWorkflow(ctx context.Context, namespace string, req StartW
 
 	args := []interface{}{}
 	if len(req.Input) > 0 {
-		args = append(args, req.Input)
+		args = append(args, json.RawMessage(req.Input))
 	}
 
 	run, err := c.client.ExecuteWorkflow(ctx, opts, req.WorkflowType, args...)
@@ -1523,10 +1523,10 @@ func (c *Client) SignalWithStartWorkflow(ctx context.Context, namespace string, 
 		ctx,
 		req.WorkflowID,
 		req.SignalName,
-		req.SignalInput,
+		json.RawMessage(req.SignalInput),
 		opts,
 		req.WorkflowType,
-		req.WorkflowInput,
+		json.RawMessage(req.WorkflowInput),
 	)
 	if err != nil {
 		return "", fmt.Errorf("failed to signal with start workflow: %w", err)
