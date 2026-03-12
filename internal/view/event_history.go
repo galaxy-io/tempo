@@ -557,13 +557,16 @@ func (eh *EventHistory) setupInputCapture() {
 		OnRune('d', func(e *tcell.EventKey) bool {
 			eh.showDetailModal()
 			return true
-		}).
+		})
+
+	// List view bindings: common + g for child workflow navigation
+	listBindings := bindings.Clone().
 		OnRune('g', func(e *tcell.EventKey) bool {
 			eh.jumpToChildWorkflow()
 			return true
 		})
 
-	// View-specific bindings for tree mode
+	// Tree view bindings: common + tree-specific + vim gg/G navigation
 	treeBindings := bindings.Clone().
 		OnRune('e', func(e *tcell.EventKey) bool {
 			eh.treeView.ExpandAll()
@@ -576,11 +579,28 @@ func (eh *EventHistory) setupInputCapture() {
 		OnRune('f', func(e *tcell.EventKey) bool {
 			eh.treeView.JumpToFailed()
 			return true
+		}).
+		OnRune('G', func(e *tcell.EventKey) bool {
+			eh.treeView.JumpToLast()
+			return true
+		}).
+		AddGG(func() {
+			eh.treeView.JumpToFirst()
+		})
+
+	// Timeline view bindings: common + vim G navigation
+	timelineBindings := bindings.Clone().
+		OnRune('G', func(e *tcell.EventKey) bool {
+			eh.timelineView.selectLast()
+			return true
+		}).
+		AddGG(func() {
+			eh.timelineView.selectFirst()
 		})
 
 	// Create input handlers
 	listHandler := func(event *tcell.EventKey) *tcell.EventKey {
-		if bindings.Handle(event) {
+		if listBindings.Handle(event) {
 			return nil
 		}
 		return event
@@ -594,7 +614,7 @@ func (eh *EventHistory) setupInputCapture() {
 	}
 
 	timelineHandler := func(event *tcell.EventKey) *tcell.EventKey {
-		if bindings.Handle(event) {
+		if timelineBindings.Handle(event) {
 			return nil
 		}
 		return event

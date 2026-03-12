@@ -787,6 +787,30 @@ func (a *App) showDebugScreen() {
 
 	// Create and push debug screen
 	debugScreen := NewDebugScreen(data)
+
+	// Wire up yank keybindings (in standalone mode these live on DebugApp)
+	debugScreen.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		switch event.Rune() {
+		case 'y':
+			report := debugScreen.GeneratePlainReport()
+			if err := copyToClipboard(report); err != nil {
+				a.ShowToastError("Failed to copy: " + err.Error())
+			} else {
+				a.toasts.Success("Report copied to clipboard!")
+			}
+			return nil
+		case 'Y':
+			tmpl := debugScreen.GenerateIssueTemplate()
+			if err := copyToClipboard(tmpl); err != nil {
+				a.ShowToastError("Failed to copy: " + err.Error())
+			} else {
+				a.toasts.Success("Issue template copied to clipboard!")
+			}
+			return nil
+		}
+		return event
+	})
+
 	a.app.Pages().Push(debugScreen)
 }
 
