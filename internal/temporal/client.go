@@ -1590,10 +1590,11 @@ func (c *Client) ListSchedules(ctx context.Context, namespace string, opts ListO
 			Paused:       entry.Paused,
 			Notes:        entry.Note,
 			WorkflowType: entry.WorkflowType.Name,
+			RecentRuns:   convertScheduleRuns(entry.RecentActions),
 		}
 
 		// Extract spec info
-		if entry.Spec != nil && len(entry.Spec.Intervals) > 0 {
+		if entry.Spec != nil {
 			schedule.Spec = formatScheduleSpec(entry.Spec)
 		}
 
@@ -1647,6 +1648,7 @@ func (c *Client) GetSchedule(ctx context.Context, namespace, scheduleID string) 
 
 	// Info from description
 	schedule.TotalActions = int64(desc.Info.NumActions)
+	schedule.RecentRuns = convertScheduleRuns(desc.Info.RecentActions)
 	if len(desc.Info.RecentActions) > 0 {
 		lastAction := desc.Info.RecentActions[len(desc.Info.RecentActions)-1]
 		t := lastAction.ActualTime
@@ -1686,6 +1688,27 @@ func (c *Client) TriggerSchedule(ctx context.Context, namespace, scheduleID stri
 func (c *Client) DeleteSchedule(ctx context.Context, namespace, scheduleID string) error {
 	handle := c.client.ScheduleClient().GetHandle(ctx, scheduleID)
 	return handle.Delete(ctx)
+}
+
+func convertScheduleRuns(actions []client.ScheduleActionResult) []ScheduleRun {
+	if len(actions) == 0 {
+		return nil
+	}
+
+	runs := make([]ScheduleRun, 0, len(actions))
+	for _, action := range actions {
+		run := ScheduleRun{
+			ScheduleTime: action.ScheduleTime,
+			ActualTime:   action.ActualTime,
+		}
+		if action.StartWorkflowResult != nil {
+			run.WorkflowID = action.StartWorkflowResult.WorkflowID
+			run.RunID = action.StartWorkflowResult.FirstExecutionRunID
+		}
+		runs = append(runs, run)
+	}
+
+	return runs
 }
 
 // formatScheduleSpec creates a human-readable schedule specification.
@@ -1812,8 +1835,8 @@ func (c *Client) GetResetPoints(ctx context.Context, namespace, workflowID, runI
 	var resetPoints []ResetPoint
 
 	// Track activity/timer state for building descriptions
-	activityInfo := make(map[int64]string)  // scheduledEventID -> activity type
-	timerInfo := make(map[int64]string)     // startedEventID -> timer ID
+	activityInfo := make(map[int64]string) // scheduledEventID -> activity type
+	timerInfo := make(map[int64]string)    // startedEventID -> timer ID
 
 	for _, event := range events {
 		// Track activity scheduled events
