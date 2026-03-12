@@ -261,19 +261,28 @@ type Poller struct {
 
 // Schedule represents a Temporal schedule.
 type Schedule struct {
-	ID             string
-	Spec           string // Human-readable schedule specification
-	WorkflowType   string
-	WorkflowID     string // Base workflow ID
-	TaskQueue      string
-	Paused         bool
-	Notes          string
-	NextRunTime    *time.Time
-	LastRunTime    *time.Time
-	LastRunStatus  string
-	TotalActions   int64
-	RecentActions  int64 // Actions in the last 24h
-	OverlapPolicy  string
+	ID            string
+	Spec          string // Human-readable schedule specification
+	WorkflowType  string
+	WorkflowID    string // Base workflow ID
+	TaskQueue     string
+	Paused        bool
+	Notes         string
+	NextRunTime   *time.Time
+	LastRunTime   *time.Time
+	LastRunStatus string
+	TotalActions  int64
+	RecentActions int64 // Actions in the last 24h
+	RecentRuns    []ScheduleRun
+	OverlapPolicy string
+}
+
+// ScheduleRun represents a workflow execution started by a schedule action.
+type ScheduleRun struct {
+	WorkflowID   string
+	RunID        string
+	ScheduleTime time.Time
+	ActualTime   time.Time
 }
 
 // ConnectionConfig holds Temporal server connection settings.
