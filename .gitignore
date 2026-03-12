@@ -7,3 +7,7 @@
 # OS
 .DS_Store
 testdata/testgen
+
+# binaries
+tempo
+*/tempo
