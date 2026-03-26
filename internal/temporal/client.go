@@ -70,6 +70,16 @@ func initLogFile() {
 	sdkLogger = &fileLogger{logger: log.New(f, "", log.Ldate|log.Ltime)}
 }
 
+// staticHeadersProvider implements the Temporal SDK HeadersProvider interface,
+// returning a fixed set of gRPC metadata headers on every outgoing request.
+type staticHeadersProvider struct {
+	headers map[string]string
+}
+
+func (p *staticHeadersProvider) GetHeaders(_ context.Context) (map[string]string, error) {
+	return p.headers, nil
+}
+
 // Client implements the Provider interface using the Temporal SDK.
 type Client struct {
 	client    client.Client
@@ -102,6 +112,11 @@ func NewClient(ctx context.Context, connConfig ConnectionConfig) (*Client, error
 			return nil, fmt.Errorf("failed to configure TLS: %w", err)
 		}
 		opts.ConnectionOptions.TLS = tlsConfig
+	}
+
+	// Attach custom gRPC metadata headers if configured
+	if len(connConfig.GRPCMeta) > 0 {
+		opts.HeadersProvider = &staticHeadersProvider{headers: connConfig.GRPCMeta}
 	}
 
 	c, err := client.DialContext(ctx, opts)
@@ -244,6 +259,11 @@ func (c *Client) reconnectWithConfig(ctx context.Context, connConfig ConnectionC
 			return fmt.Errorf("failed to configure TLS: %w", err)
 		}
 		opts.ConnectionOptions.TLS = tlsConfig
+	}
+
+	// Attach custom gRPC metadata headers if configured
+	if len(connConfig.GRPCMeta) > 0 {
+		opts.HeadersProvider = &staticHeadersProvider{headers: connConfig.GRPCMeta}
 	}
 
 	newClient, err := client.DialContext(ctx, opts)
