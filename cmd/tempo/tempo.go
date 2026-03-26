@@ -104,6 +104,7 @@ func main() {
 		TLSServerName: profileConfig.TLS.ServerName,
 		TLSSkipVerify: profileConfig.TLS.SkipVerify,
 		APIKey:        profileConfig.APIKey,
+		GRPCMeta:      profileConfig.GRPCMeta,
 	}
 
 	// CLI flags override profile settings

@@ -43,19 +43,27 @@ type ConnectionConfig struct {
 	Namespace string                    `yaml:"namespace"`
 	TLS       TLSConfig                 `yaml:"tls,omitempty"`
 	APIKey    string                    `yaml:"api_key,omitempty"` // For Temporal Cloud API key authentication
+	GRPCMeta  map[string]string         `yaml:"grpc_meta,omitempty"` // Custom gRPC metadata headers (KEY=VALUE pairs)
 	Commands  map[string]CommandConfig  `yaml:"commands,omitempty"`
 }
 
 // ExpandEnv expands environment variables in sensitive fields.
 // Supports ${VAR}, $VAR, and ${VAR:-default} syntax.
 func (c ConnectionConfig) ExpandEnv() ConnectionConfig {
-	return ConnectionConfig{
+	expanded := ConnectionConfig{
 		Address:   c.Address,
 		Namespace: c.Namespace,
 		TLS:       c.TLS,
 		APIKey:    expandEnvVar(c.APIKey),
 		Commands:  c.Commands,
 	}
+	if len(c.GRPCMeta) > 0 {
+		expanded.GRPCMeta = make(map[string]string, len(c.GRPCMeta))
+		for k, v := range c.GRPCMeta {
+			expanded.GRPCMeta[k] = expandEnvVar(v)
+		}
+	}
+	return expanded
 }
 
 // expandEnvVar expands environment variable references in a string.
