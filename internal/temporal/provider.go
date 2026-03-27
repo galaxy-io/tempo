@@ -294,7 +294,8 @@ type ConnectionConfig struct {
 	TLSCAPath     string
 	TLSServerName string
 	TLSSkipVerify bool
-	APIKey        string // For Temporal Cloud API key authentication
+	APIKey        string            // For Temporal Cloud API key authentication
+	GRPCMeta      map[string]string // Custom gRPC metadata headers attached to every request
 }
 
 // DefaultConnectionConfig returns default connection settings.

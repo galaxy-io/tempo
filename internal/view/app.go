@@ -1173,6 +1173,7 @@ func (a *App) SwitchProfile(name string) {
 		TLSServerName: profileCfg.TLS.ServerName,
 		TLSSkipVerify: profileCfg.TLS.SkipVerify,
 		APIKey:        profileCfg.APIKey,
+		GRPCMeta:      profileCfg.GRPCMeta,
 	}
 
 	// Stop current views

@@ -549,6 +549,8 @@ func (f *ProfileForm) buildForm(name string, cfg config.ConnectionConfig, isEdit
 				ServerName: values["tlsServerName"].(string),
 				SkipVerify: skipVerify,
 			},
+			APIKey:   cfg.APIKey,
+			GRPCMeta: cfg.GRPCMeta,
 		}
 
 		if f.onSave != nil {
