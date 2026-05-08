@@ -239,8 +239,12 @@ type EnhancedHistoryEvent struct {
 	TaskQueue string
 	Identity  string
 	Failure   string
-	Result    string
-	Input     string // Workflow/Activity input
+	// Failure metadata mirrors Temporal failure fields for richer diagnostics.
+	FailureSource     string
+	FailureStackTrace string
+	FailureCause      string
+	Result            string
+	Input             string // Workflow/Activity input
 }
 
 // TaskQueueInfo represents task queue status information.
