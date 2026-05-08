@@ -215,6 +215,10 @@ func (eh *EventHistory) applyFilter(query string) {
 				strings.Contains(strings.ToLower(ev.ActivityType), q) ||
 				strings.Contains(strings.ToLower(ev.TimerID), q) ||
 				strings.Contains(strings.ToLower(ev.ChildWorkflowType), q) ||
+				strings.Contains(strings.ToLower(ev.Failure), q) ||
+				strings.Contains(strings.ToLower(ev.FailureSource), q) ||
+				strings.Contains(strings.ToLower(ev.FailureStackTrace), q) ||
+				strings.Contains(strings.ToLower(ev.FailureCause), q) ||
 				strings.Contains(strings.ToLower(ev.Details), q) {
 				eh.enhancedEvents = append(eh.enhancedEvents, ev)
 			}
@@ -417,7 +421,7 @@ func (eh *EventHistory) updateSidePanelFromList(index int) {
 [%s]%s[-]
 
 [%s::b]Details[-:-:-]
-%s`,
+%s%s`,
 		theme.TagAccent(),
 		theme.TagFg(), ev.ID,
 		theme.TagAccent(),
@@ -426,6 +430,7 @@ func (eh *EventHistory) updateSidePanelFromList(index int) {
 		theme.TagFg(), ev.Time.Format("2006-01-02 15:04:05.000"),
 		theme.TagAccent(),
 		formattedDetails,
+		formatFailureSidePanel(&ev),
 	)
 	eh.sidePanel.SetText(text)
 }
@@ -459,8 +464,7 @@ func (eh *EventHistory) updateSidePanelFromTree(node *temporal.EventTreeNode) {
 			dataStr += fmt.Sprintf("\n\n[%s::b]Result[-:-:-]\n%s", theme.TagAccent(), formatted)
 		}
 		if ev.Failure != "" {
-			formatted := formatSidePanelDetails(ev.Failure)
-			dataStr += fmt.Sprintf("\n\n[%s::b]Failure[-:-:-]\n[%s]%s[-]", theme.TagAccent(), theme.TagError(), formatted)
+			dataStr += formatFailureSidePanel(ev)
 		}
 	}
 
@@ -776,7 +780,7 @@ func (eh *EventHistory) getSelectedEventData() (string, string) {
 			// Get the most relevant event (usually the last one with data)
 			for i := len(node.Events) - 1; i >= 0; i-- {
 				ev := node.Events[i]
-				if ev.Result != "" || ev.Failure != "" || ev.Details != "" {
+				if hasEventData(ev) {
 					return ev.Type, eh.formatEventDataRaw(ev)
 				}
 			}
@@ -806,11 +810,50 @@ func (eh *EventHistory) formatEventDataRaw(ev *temporal.EnhancedHistoryEvent) st
 	if ev.Failure != "" {
 		parts = append(parts, fmt.Sprintf("Failure: %s", prettyPrintJSON(ev.Failure)))
 	}
+	if ev.FailureSource != "" {
+		parts = append(parts, fmt.Sprintf("Source: %s", ev.FailureSource))
+	}
+	if ev.FailureStackTrace != "" {
+		parts = append(parts, fmt.Sprintf("Stack Trace:\n%s", ev.FailureStackTrace))
+	}
+	if ev.FailureCause != "" {
+		parts = append(parts, fmt.Sprintf("Cause:\n%s", ev.FailureCause))
+	}
 
 	if len(parts) == 0 {
 		return ev.Details
 	}
 	return strings.Join(parts, "\n\n")
+}
+
+func hasEventData(ev *temporal.EnhancedHistoryEvent) bool {
+	return ev.Details != "" ||
+		ev.Result != "" ||
+		ev.Failure != "" ||
+		ev.FailureSource != "" ||
+		ev.FailureStackTrace != "" ||
+		ev.FailureCause != ""
+}
+
+func formatFailureSidePanel(ev *temporal.EnhancedHistoryEvent) string {
+	if ev == nil || (ev.Failure == "" && ev.FailureSource == "" && ev.FailureStackTrace == "" && ev.FailureCause == "") {
+		return ""
+	}
+
+	var result strings.Builder
+	if ev.FailureSource != "" {
+		result.WriteString(fmt.Sprintf("\n\n[%s::b]Source[-:-:-]\n[%s]%s[-]",
+			theme.TagAccent(), theme.TagFg(), tview.Escape(ev.FailureSource)))
+	}
+	if ev.FailureStackTrace != "" {
+		result.WriteString(fmt.Sprintf("\n\n[%s::b]Stack Trace[-:-:-]\n[%s]%s[-]",
+			theme.TagAccent(), theme.TagFgDim(), tview.Escape(ev.FailureStackTrace)))
+	}
+	if ev.FailureCause != "" {
+		result.WriteString(fmt.Sprintf("\n\n[%s::b]Cause[-:-:-]\n[%s]%s[-]",
+			theme.TagAccent(), theme.TagFgDim(), tview.Escape(ev.FailureCause)))
+	}
+	return result.String()
 }
 
 // yankEventData copies the selected event's data to clipboard.
@@ -1081,7 +1124,7 @@ func highlightJSONValueLine(line string) string {
 
 // highlightValues highlights JSON values (booleans, null, numbers).
 func highlightValues(s string) string {
-	result := s
+	result := tview.Escape(s)
 	result = strings.ReplaceAll(result, "true", fmt.Sprintf("[%s]true[-]", temporal.StatusCompleted.ColorTag()))
 	result = strings.ReplaceAll(result, "false", fmt.Sprintf("[%s]false[-]", temporal.StatusFailed.ColorTag()))
 	result = strings.ReplaceAll(result, "null", fmt.Sprintf("[%s]null[-]", theme.TagFgDim()))
@@ -1162,7 +1205,7 @@ func highlightJSONLine(line string) string {
 // highlightJSONValue highlights JSON values (strings, numbers, booleans).
 func highlightJSONValue(s string) string {
 	// Replace common JSON patterns with highlighted versions
-	result := s
+	result := tview.Escape(s)
 
 	// Highlight string values (simple approach)
 	// This is a basic implementation - a full JSON parser would be more robust
