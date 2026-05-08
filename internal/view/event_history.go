@@ -841,10 +841,6 @@ func formatFailureSidePanel(ev *temporal.EnhancedHistoryEvent) string {
 	}
 
 	var result strings.Builder
-	if ev.Failure != "" {
-		formatted := formatSidePanelDetails(ev.Failure)
-		result.WriteString(fmt.Sprintf("\n\n[%s::b]Failure[-:-:-]\n[%s]%s[-]", theme.TagAccent(), theme.TagError(), formatted))
-	}
 	if ev.FailureSource != "" {
 		result.WriteString(fmt.Sprintf("\n\n[%s::b]Source[-:-:-]\n[%s]%s[-]",
 			theme.TagAccent(), theme.TagFg(), tview.Escape(ev.FailureSource)))
