@@ -16,6 +16,7 @@ import (
 	"github.com/galaxy-io/tempo/internal/config"
 	commonpb "go.temporal.io/api/common/v1"
 	"go.temporal.io/api/enums/v1"
+	failurepb "go.temporal.io/api/failure/v1"
 	historypb "go.temporal.io/api/history/v1"
 	namespacepb "go.temporal.io/api/namespace/v1"
 	"go.temporal.io/api/operatorservice/v1"
@@ -711,10 +712,7 @@ func extractEnhancedEvent(event *historypb.HistoryEvent) EnhancedHistoryEvent {
 	case enums.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED:
 		attrs := event.GetWorkflowExecutionFailedEventAttributes()
 		if attrs != nil && attrs.GetFailure() != nil {
-			he.Failure = attrs.GetFailure().GetMessage()
-			if attrs.GetFailure().GetStackTrace() != "" {
-				he.Failure += "\n\nStack Trace:\n" + attrs.GetFailure().GetStackTrace()
-			}
+			populateFailureDetails(&he, attrs.GetFailure())
 		}
 
 	case enums.EVENT_TYPE_WORKFLOW_EXECUTION_CANCELED:
@@ -765,7 +763,7 @@ func extractEnhancedEvent(event *historypb.HistoryEvent) EnhancedHistoryEvent {
 		if attrs != nil {
 			he.ScheduledEventID = attrs.GetScheduledEventId()
 			if attrs.GetFailure() != nil {
-				he.Failure = attrs.GetFailure().GetMessage()
+				populateFailureDetails(&he, attrs.GetFailure())
 			}
 		}
 
@@ -788,7 +786,7 @@ func extractEnhancedEvent(event *historypb.HistoryEvent) EnhancedHistoryEvent {
 			he.Attempt = attrs.GetAttempt()
 			he.Identity = attrs.GetIdentity()
 			if attrs.GetLastFailure() != nil {
-				he.Failure = attrs.GetLastFailure().GetMessage()
+				populateFailureDetails(&he, attrs.GetLastFailure())
 			}
 		}
 
@@ -809,7 +807,7 @@ func extractEnhancedEvent(event *historypb.HistoryEvent) EnhancedHistoryEvent {
 			he.ScheduledEventID = attrs.GetScheduledEventId()
 			he.StartedEventID = attrs.GetStartedEventId()
 			if attrs.GetFailure() != nil {
-				he.Failure = attrs.GetFailure().GetMessage()
+				populateFailureDetails(&he, attrs.GetFailure())
 			}
 		}
 
@@ -819,7 +817,7 @@ func extractEnhancedEvent(event *historypb.HistoryEvent) EnhancedHistoryEvent {
 			he.ScheduledEventID = attrs.GetScheduledEventId()
 			he.StartedEventID = attrs.GetStartedEventId()
 			if attrs.GetFailure() != nil {
-				he.Failure = attrs.GetFailure().GetMessage()
+				populateFailureDetails(&he, attrs.GetFailure())
 			}
 		}
 
@@ -903,7 +901,7 @@ func extractEnhancedEvent(event *historypb.HistoryEvent) EnhancedHistoryEvent {
 				he.ChildRunID = attrs.GetWorkflowExecution().GetRunId()
 			}
 			if attrs.GetFailure() != nil {
-				he.Failure = attrs.GetFailure().GetMessage()
+				populateFailureDetails(&he, attrs.GetFailure())
 			}
 		}
 
@@ -954,6 +952,39 @@ func extractEnhancedEvent(event *historypb.HistoryEvent) EnhancedHistoryEvent {
 	}
 
 	return he
+}
+
+func populateFailureDetails(event *EnhancedHistoryEvent, failure *failurepb.Failure) {
+	if failure == nil {
+		return
+	}
+	event.Failure = failure.GetMessage()
+	event.FailureSource = failure.GetSource()
+	event.FailureStackTrace = failure.GetStackTrace()
+	event.FailureCause = formatFailureCause(failure.GetCause())
+}
+
+func formatFailureCause(failure *failurepb.Failure) string {
+	if failure == nil {
+		return ""
+	}
+
+	var parts []string
+	for f := failure; f != nil; f = f.GetCause() {
+		var line strings.Builder
+		if f.GetSource() != "" {
+			line.WriteString(f.GetSource())
+			line.WriteString(": ")
+		}
+		line.WriteString(f.GetMessage())
+		if f.GetStackTrace() != "" {
+			line.WriteString("\n")
+			line.WriteString(f.GetStackTrace())
+		}
+		parts = append(parts, line.String())
+	}
+
+	return strings.Join(parts, "\n\nCaused by: ")
 }
 
 // formatEventType cleans up the event type string for display
