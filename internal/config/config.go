@@ -19,23 +19,51 @@ type TLSConfig struct {
 	SkipVerify bool   `yaml:"skip_verify,omitempty"`
 }
 
+// CommandOutputType defines how command output should be displayed.
+type CommandOutputType string
+
+const (
+	OutputLog       CommandOutputType = "log"
+	OutputJSON      CommandOutputType = "json"
+	OutputWorkflows CommandOutputType = "workflows"
+	OutputWorkflow  CommandOutputType = "workflow"
+)
+
+// CommandConfig defines a user-configured command.
+type CommandConfig struct {
+	Description string            `yaml:"description,omitempty"`
+	Cmd         string            `yaml:"cmd"`
+	Output      CommandOutputType `yaml:"output,omitempty"`
+	Confirm     bool              `yaml:"confirm,omitempty"`
+}
+
 // ConnectionConfig holds Temporal connection settings.
 type ConnectionConfig struct {
-	Address   string    `yaml:"address"`
-	Namespace string    `yaml:"namespace"`
-	TLS       TLSConfig `yaml:"tls,omitempty"`
-	APIKey    string    `yaml:"api_key,omitempty"` // For Temporal Cloud API key authentication
+	Address   string                    `yaml:"address"`
+	Namespace string                    `yaml:"namespace"`
+	TLS       TLSConfig                 `yaml:"tls,omitempty"`
+	APIKey    string                    `yaml:"api_key,omitempty"` // For Temporal Cloud API key authentication
+	GRPCMeta  map[string]string         `yaml:"grpc_meta,omitempty"` // Custom gRPC metadata headers (KEY=VALUE pairs)
+	Commands  map[string]CommandConfig  `yaml:"commands,omitempty"`
 }
 
 // ExpandEnv expands environment variables in sensitive fields.
 // Supports ${VAR}, $VAR, and ${VAR:-default} syntax.
 func (c ConnectionConfig) ExpandEnv() ConnectionConfig {
-	return ConnectionConfig{
+	expanded := ConnectionConfig{
 		Address:   c.Address,
 		Namespace: c.Namespace,
 		TLS:       c.TLS,
 		APIKey:    expandEnvVar(c.APIKey),
+		Commands:  c.Commands,
 	}
+	if len(c.GRPCMeta) > 0 {
+		expanded.GRPCMeta = make(map[string]string, len(c.GRPCMeta))
+		for k, v := range c.GRPCMeta {
+			expanded.GRPCMeta[k] = expandEnvVar(v)
+		}
+	}
+	return expanded
 }
 
 // expandEnvVar expands environment variable references in a string.
@@ -73,13 +101,38 @@ type SavedFilter struct {
 	IsDefault bool   `yaml:"is_default,omitempty"`
 }
 
+// ExternalProfilePrefix is the prefix used for profiles imported from the Temporal CLI.
+const ExternalProfilePrefix = "import:"
+
 // Config represents the application configuration.
 type Config struct {
-	Theme         string                      `yaml:"theme"`
-	ActiveProfile string                      `yaml:"active_profile,omitempty"`
-	Profiles      map[string]ConnectionConfig `yaml:"profiles,omitempty"`
-	SavedFilters  []SavedFilter               `yaml:"saved_filters,omitempty"`
-	CheckUpdates  *bool                       `yaml:"check_updates,omitempty"`
+	Theme            string                      `yaml:"theme"`
+	ActiveProfile    string                      `yaml:"active_profile,omitempty"`
+	Profiles         map[string]ConnectionConfig `yaml:"profiles,omitempty"`
+	ExternalProfiles map[string]ConnectionConfig `yaml:"-"`
+	SavedFilters     []SavedFilter               `yaml:"saved_filters,omitempty"`
+	CheckUpdates     *bool                       `yaml:"check_updates,omitempty"`
+	HelpStyle        string                      `yaml:"help_style,omitempty"` // "modal" (default) or "sheet"
+	Commands         map[string]CommandConfig    `yaml:"commands,omitempty"`
+}
+
+// IsExternalProfile returns true if the given profile name is an external
+// profile imported from the Temporal CLI.
+func (c *Config) IsExternalProfile(name string) bool {
+	if c.ExternalProfiles == nil {
+		return false
+	}
+	_, ok := c.ExternalProfiles[name]
+	return ok
+}
+
+// GetHelpStyle returns the configured help display style.
+// Returns "sheet" if explicitly set, otherwise "modal" (default).
+func (c *Config) GetHelpStyle() string {
+	if c.HelpStyle == "sheet" {
+		return "sheet"
+	}
+	return "modal"
 }
 
 // ShouldCheckUpdates returns whether update checking is enabled.
@@ -113,7 +166,9 @@ func Load() (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return DefaultConfig(), nil
+			cfg := DefaultConfig()
+			cfg.loadExternalProfiles()
+			return cfg, nil
 		}
 		return nil, fmt.Errorf("reading config: %w", err)
 	}
@@ -126,7 +181,23 @@ func Load() (*Config, error) {
 	// Ensure profiles and active profile are set
 	cfg.ensureDefaults()
 
+	// Load external profiles from Temporal CLI config
+	cfg.loadExternalProfiles()
+
 	return cfg, nil
+}
+
+// loadExternalProfiles discovers Temporal CLI profiles and stores them
+// with the "import:" prefix to distinguish from native profiles.
+func (c *Config) loadExternalProfiles() {
+	cliProfiles := LoadTemporalCLIProfiles()
+	if len(cliProfiles) == 0 {
+		return
+	}
+	c.ExternalProfiles = make(map[string]ConnectionConfig, len(cliProfiles))
+	for name, cfg := range cliProfiles {
+		c.ExternalProfiles[ExternalProfilePrefix+name] = cfg
+	}
 }
 
 // ensureDefaults ensures the config has valid profiles and active profile.
@@ -220,44 +291,55 @@ func Save(c *Config) error {
 	return c.Save()
 }
 
-// GetProfile returns a profile by name.
+// GetProfile returns a profile by name, checking both native and external profiles.
 func (c *Config) GetProfile(name string) (ConnectionConfig, bool) {
-	if c.Profiles == nil {
-		return ConnectionConfig{}, false
+	if c.Profiles != nil {
+		if profile, ok := c.Profiles[name]; ok {
+			return profile, true
+		}
 	}
-	profile, ok := c.Profiles[name]
-	return profile, ok
+	if c.ExternalProfiles != nil {
+		if profile, ok := c.ExternalProfiles[name]; ok {
+			return profile, true
+		}
+	}
+	return ConnectionConfig{}, false
 }
 
 // GetActiveProfile returns the active profile name and its configuration.
 func (c *Config) GetActiveProfile() (string, ConnectionConfig) {
-	if c.Profiles == nil || c.ActiveProfile == "" {
+	if c.ActiveProfile == "" {
 		return "default", ConnectionConfig{
 			Address:   "localhost:7233",
 			Namespace: "default",
 		}
 	}
-	profile, ok := c.Profiles[c.ActiveProfile]
-	if !ok {
-		// Active profile doesn't exist, return first available
-		for name, cfg := range c.Profiles {
-			return name, cfg
-		}
-		return "default", ConnectionConfig{
-			Address:   "localhost:7233",
-			Namespace: "default",
+	// Check native profiles
+	if c.Profiles != nil {
+		if profile, ok := c.Profiles[c.ActiveProfile]; ok {
+			return c.ActiveProfile, profile
 		}
 	}
-	return c.ActiveProfile, profile
+	// Check external profiles
+	if c.ExternalProfiles != nil {
+		if profile, ok := c.ExternalProfiles[c.ActiveProfile]; ok {
+			return c.ActiveProfile, profile
+		}
+	}
+	// Active profile doesn't exist, return first available native profile
+	for name, cfg := range c.Profiles {
+		return name, cfg
+	}
+	return "default", ConnectionConfig{
+		Address:   "localhost:7233",
+		Namespace: "default",
+	}
 }
 
 // SetActiveProfile sets the active profile by name.
-// Returns error if profile doesn't exist.
+// Returns error if profile doesn't exist. Supports both native and external profiles.
 func (c *Config) SetActiveProfile(name string) error {
-	if c.Profiles == nil {
-		return fmt.Errorf("no profiles configured")
-	}
-	if _, ok := c.Profiles[name]; !ok {
+	if _, ok := c.GetProfile(name); !ok {
 		return fmt.Errorf("profile %q not found", name)
 	}
 	c.ActiveProfile = name
@@ -265,16 +347,25 @@ func (c *Config) SetActiveProfile(name string) error {
 }
 
 // SaveProfile saves or updates a profile.
-func (c *Config) SaveProfile(name string, cfg ConnectionConfig) {
+// Returns error if trying to save an external (imported) profile.
+func (c *Config) SaveProfile(name string, cfg ConnectionConfig) error {
+	if c.IsExternalProfile(name) {
+		return fmt.Errorf("cannot modify external profile %q", name)
+	}
 	if c.Profiles == nil {
 		c.Profiles = make(map[string]ConnectionConfig)
 	}
 	c.Profiles[name] = cfg
+	return nil
 }
 
 // DeleteProfile deletes a profile by name.
-// Returns error if trying to delete the active profile or if profile doesn't exist.
+// Returns error if trying to delete the active profile, an external profile,
+// or if profile doesn't exist.
 func (c *Config) DeleteProfile(name string) error {
+	if c.IsExternalProfile(name) {
+		return fmt.Errorf("cannot delete external profile %q", name)
+	}
 	if c.Profiles == nil {
 		return fmt.Errorf("profile %q not found", name)
 	}
@@ -288,26 +379,22 @@ func (c *Config) DeleteProfile(name string) error {
 	return nil
 }
 
-// ListProfiles returns a sorted list of profile names.
+// ListProfiles returns a sorted list of profile names, including external profiles.
 func (c *Config) ListProfiles() []string {
-	if c.Profiles == nil {
-		return nil
-	}
-	names := make([]string, 0, len(c.Profiles))
+	names := make([]string, 0, len(c.Profiles)+len(c.ExternalProfiles))
 	for name := range c.Profiles {
 		names = append(names, name)
 	}
-	// Sort for consistent ordering
+	for name := range c.ExternalProfiles {
+		names = append(names, name)
+	}
 	sort.Strings(names)
 	return names
 }
 
-// ProfileExists checks if a profile with the given name exists.
+// ProfileExists checks if a profile with the given name exists (native or external).
 func (c *Config) ProfileExists(name string) bool {
-	if c.Profiles == nil {
-		return false
-	}
-	_, ok := c.Profiles[name]
+	_, ok := c.GetProfile(name)
 	return ok
 }
 
@@ -399,6 +486,32 @@ func loadThemeFile(path string) (*ParsedTheme, error) {
 	}
 
 	return theme.Parse()
+}
+
+// GetMergedCommands returns commands merged from global and profile-level config.
+// Profile commands override global commands with the same name.
+func (c *Config) GetMergedCommands(profileName string) map[string]CommandConfig {
+	merged := make(map[string]CommandConfig)
+	for name, cmd := range c.Commands {
+		merged[name] = cmd
+	}
+	if profile, ok := c.Profiles[profileName]; ok {
+		for name, cmd := range profile.Commands {
+			merged[name] = cmd
+		}
+	}
+	return merged
+}
+
+// ListCommandNames returns a sorted list of available command names for a profile.
+func (c *Config) ListCommandNames(profileName string) []string {
+	merged := c.GetMergedCommands(profileName)
+	names := make([]string, 0, len(merged))
+	for name := range merged {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
 // ValidateTheme checks if a theme name is valid.

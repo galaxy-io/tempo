@@ -123,6 +123,10 @@ func (wd *WorkflowDetail) applyFilter(query string) {
 				strings.Contains(strings.ToLower(ev.ActivityType), q) ||
 				strings.Contains(strings.ToLower(ev.TimerID), q) ||
 				strings.Contains(strings.ToLower(ev.ChildWorkflowType), q) ||
+				strings.Contains(strings.ToLower(ev.Failure), q) ||
+				strings.Contains(strings.ToLower(ev.FailureSource), q) ||
+				strings.Contains(strings.ToLower(ev.FailureStackTrace), q) ||
+				strings.Contains(strings.ToLower(ev.FailureCause), q) ||
 				strings.Contains(strings.ToLower(ev.Details), q) {
 				wd.events = append(wd.events, ev)
 			}
@@ -369,11 +373,12 @@ func (wd *WorkflowDetail) updateEventDetail(ev temporal.EnhancedHistoryEvent) {
 [%s::b]Type[-:-:-]         [%s]%s %s[-]%s
 [%s::b]Time[-:-:-]         [%s]%s[-]
 
-%s`,
+%s%s`,
 		theme.TagFgDim(), theme.TagFg(), ev.ID,
 		theme.TagFgDim(), colorTag, icon, ev.Type, nameLine,
 		theme.TagFgDim(), theme.TagFg(), ev.Time.Format("2006-01-02 15:04:05.000"),
 		formattedDetails,
+		formatFailureSidePanel(&ev),
 	)
 	wd.eventDetailView.SetText(detailText)
 }
@@ -626,6 +631,15 @@ func getEventNameDetail(ev *temporal.EnhancedHistoryEvent) string {
 	return ""
 }
 
+// CommandContext returns the workflow ID, run ID, and type for command variable expansion.
+func (wd *WorkflowDetail) CommandContext() (workflowID, runID, workflowType string) {
+	wfType := ""
+	if wd.workflow != nil {
+		wfType = wd.workflow.Type
+	}
+	return wd.workflowID, wd.runID, wfType
+}
+
 // Name returns the view name.
 func (wd *WorkflowDetail) Name() string {
 	return "workflow-detail"
@@ -686,6 +700,10 @@ func (wd *WorkflowDetail) Start() {
 			wd.jumpToChildWorkflow()
 			return true
 		}).
+		OnRune('N', func(e *tcell.EventKey) bool {
+			wd.showStartWorkflow()
+			return true
+		}).
 		OnRune('o', func(e *tcell.EventKey) bool {
 			wd.showWorkflowGraph()
 			return true
@@ -735,6 +753,7 @@ func (wd *WorkflowDetail) Hints() []KeyHint {
 	}
 
 	hints = append(hints,
+		KeyHint{Key: "N", Description: "Start"},
 		KeyHint{Key: "D", Description: "Delete"},
 		KeyHint{Key: "T", Description: "Theme"},
 		KeyHint{Key: "esc", Description: "Back"},
@@ -770,8 +789,8 @@ func truncateStr(s string, maxLen int) string {
 func (wd *WorkflowDetail) showCancelConfirm() {
 	form := components.NewFormBuilder().
 		Text("reason", "Reason (optional)").
-			Value("Cancelled via tempo").
-			Done().
+		Value("Cancelled via tempo").
+		Done().
 		OnSubmit(func(values map[string]any) {
 			reason := values["reason"].(string)
 			wd.closeModal()
@@ -829,9 +848,9 @@ func (wd *WorkflowDetail) executeCancelWorkflow(reason string) {
 func (wd *WorkflowDetail) showTerminateConfirm() {
 	form := components.NewFormBuilder().
 		Text("reason", "Reason (required)").
-			Value("Terminated via tempo").
-			Validate(validators.Required()).
-			Done().
+		Value("Terminated via tempo").
+		Validate(validators.Required()).
+		Done().
 		OnSubmit(func(values map[string]any) {
 			reason := values["reason"].(string)
 			wd.closeModal()
@@ -903,14 +922,14 @@ func (wd *WorkflowDetail) showDeleteConfirm() {
 	workflowID := wd.workflowID
 	form := components.NewFormBuilder().
 		Text("confirm", "Type workflow ID to confirm").
-			Placeholder(workflowID).
-			Validate(validators.Custom(func(value any) error {
-				if s, ok := value.(string); ok && s != workflowID {
-					return fmt.Errorf("must match workflow ID")
-				}
-				return nil
-			})).
-			Done().
+		Placeholder(workflowID).
+		Validate(validators.Custom(func(value any) error {
+			if s, ok := value.(string); ok && s != workflowID {
+				return fmt.Errorf("must match workflow ID")
+			}
+			return nil
+		})).
+		Done().
 		OnSubmit(func(values map[string]any) {
 			confirm := values["confirm"].(string)
 			if confirm != workflowID {
@@ -989,12 +1008,12 @@ func (wd *WorkflowDetail) executeDeleteWorkflow() {
 func (wd *WorkflowDetail) showSignalInput() {
 	form := components.NewFormBuilder().
 		Text("signalName", "Signal Name").
-			Placeholder("Enter signal name").
-			Validate(validators.Required()).
-			Done().
+		Placeholder("Enter signal name").
+		Validate(validators.Required()).
+		Done().
 		Text("input", "Input (JSON, optional)").
-			Placeholder("{}").
-			Done().
+		Placeholder("{}").
+		Done().
 		OnSubmit(func(values map[string]any) {
 			signalName := values["signalName"].(string)
 			input := values["input"].(string)
@@ -1057,6 +1076,21 @@ func (wd *WorkflowDetail) executeSignalWorkflow(signalName, input string) {
 	}()
 }
 
+// showStartWorkflow displays the start workflow modal pre-filled from the current workflow.
+func (wd *WorkflowDetail) showStartWorkflow() {
+	var prefill startWorkflowPrefill
+	if wd.workflow != nil {
+		prefill = startWorkflowPrefill{
+			WorkflowID:   wd.workflow.ID,
+			WorkflowType: wd.workflow.Type,
+			TaskQueue:    wd.workflow.TaskQueue,
+			Input:        wd.workflow.Input,
+		}
+	}
+
+	showStartWorkflowModal(wd.app, prefill)
+}
+
 func (wd *WorkflowDetail) showResetSelector() {
 	provider := wd.app.Provider()
 	if provider == nil {
@@ -1106,8 +1140,8 @@ func (wd *WorkflowDetail) showResetSelector() {
 func (wd *WorkflowDetail) showQuickResetModal(failurePoint temporal.ResetPoint, allPoints []temporal.ResetPoint) {
 	form := components.NewFormBuilder().
 		Text("reason", "Reason").
-			Value("Reset via tempo").
-			Done().
+		Value("Reset via tempo").
+		Done().
 		OnSubmit(func(values map[string]any) {
 			wd.closeModal()
 			wd.executeResetWorkflow(failurePoint.EventID, values["reason"].(string))
@@ -1216,8 +1250,8 @@ func (wd *WorkflowDetail) showResetConfirm(resetPoint temporal.ResetPoint) {
 	eventID := resetPoint.EventID
 	form := components.NewFormBuilder().
 		Text("reason", "Reason").
-			Value("Reset via tempo").
-			Done().
+		Value("Reset via tempo").
+		Done().
 		OnSubmit(func(values map[string]any) {
 			wd.closeModal()
 			wd.executeResetWorkflow(eventID, values["reason"].(string))
@@ -1331,13 +1365,13 @@ func (wd *WorkflowDetail) closeModal() {
 func (wd *WorkflowDetail) showQueryInput() {
 	form := components.NewFormBuilder().
 		Select("queryType", "Query Type", []string{"__stack_trace", "custom"}).
-			Done().
+		Done().
 		Text("customQuery", "Custom Query Name").
-			Placeholder("Enter custom query name").
-			Done().
+		Placeholder("Enter custom query name").
+		Done().
 		Text("args", "Arguments (JSON, optional)").
-			Placeholder("{}").
-			Done().
+		Placeholder("{}").
+		Done().
 		OnSubmit(func(values map[string]any) {
 			queryType := values["queryType"].(string)
 			if queryType == "custom" {
@@ -1536,7 +1570,35 @@ func (wd *WorkflowDetail) getSelectedEventDetails() (string, string) {
 		return "", ""
 	}
 	ev := wd.events[row]
-	return ev.Type, prettyPrintJSONDetail(ev.Details)
+	return ev.Type, formatWorkflowEventDataRaw(&ev)
+}
+
+func formatWorkflowEventDataRaw(ev *temporal.EnhancedHistoryEvent) string {
+	if ev == nil {
+		return ""
+	}
+
+	var parts []string
+	if ev.Details != "" {
+		parts = append(parts, fmt.Sprintf("Details: %s", prettyPrintJSONDetail(ev.Details)))
+	}
+	if ev.Result != "" {
+		parts = append(parts, fmt.Sprintf("Result: %s", prettyPrintJSONDetail(ev.Result)))
+	}
+	if ev.Failure != "" {
+		parts = append(parts, fmt.Sprintf("Failure: %s", prettyPrintJSONDetail(ev.Failure)))
+	}
+	if ev.FailureSource != "" {
+		parts = append(parts, fmt.Sprintf("Source: %s", ev.FailureSource))
+	}
+	if ev.FailureStackTrace != "" {
+		parts = append(parts, fmt.Sprintf("Stack Trace:\n%s", ev.FailureStackTrace))
+	}
+	if ev.FailureCause != "" {
+		parts = append(parts, fmt.Sprintf("Cause:\n%s", ev.FailureCause))
+	}
+
+	return strings.Join(parts, "\n\n")
 }
 
 // yankEventData copies the selected event's details to clipboard.
@@ -1618,7 +1680,7 @@ func (wd *WorkflowDetail) showEventDetailModal() {
 
 	// Format the details with syntax highlighting
 	formattedDetails := formatEventDetails(ev.Details)
-	fullText := headerText + "\n" + formattedDetails
+	fullText := headerText + "\n" + formattedDetails + formatFailureSidePanel(&ev)
 
 	detailView.SetText(fullText)
 
@@ -1684,9 +1746,9 @@ func (wd *WorkflowDetail) showEventDetailModal() {
 				detailView.ScrollToEnd()
 				return nil
 			case 'y':
-				// Copy the raw details
-				if ev.Details != "" {
-					copyToClipboard(prettyPrintJSONDetail(ev.Details))
+				// Copy the raw event diagnostics.
+				if data := formatWorkflowEventDataRaw(&ev); data != "" {
+					copyToClipboard(data)
 					// Show "Copied!" feedback
 					panel.SetTitle(fmt.Sprintf("%s Copied!", theme.IconCompleted))
 					panel.SetTitleColor(temporal.StatusCompleted.Color())
@@ -1826,7 +1888,7 @@ func (wd *WorkflowDetail) showIOModal() {
 	// Create modal - use percentage-based sizing for larger display
 	modal := components.NewModal(components.ModalConfig{
 		Title:     fmt.Sprintf("%s Input/Output: %s", theme.IconWorkflow, truncateStr(wd.workflow.Type, 30)),
-		Width:     0,  // 0 means use percentage
+		Width:     0, // 0 means use percentage
 		Height:    0,
 		MinWidth:  120,
 		MinHeight: 35,

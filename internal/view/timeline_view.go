@@ -669,6 +669,39 @@ func (tv *TimelineView) moveSelection(delta int) {
 	}
 }
 
+// selectFirst jumps to the first lane.
+func (tv *TimelineView) selectFirst() {
+	if len(tv.lanes) == 0 {
+		return
+	}
+	old := tv.selectedLane
+	tv.selectedLane = 0
+	tv.scrollY = 0
+	if old != tv.selectedLane && tv.onSelectionChange != nil {
+		tv.onSelectionChange(&tv.lanes[tv.selectedLane])
+	}
+}
+
+// selectLast jumps to the last lane.
+func (tv *TimelineView) selectLast() {
+	if len(tv.lanes) == 0 {
+		return
+	}
+	old := tv.selectedLane
+	tv.selectedLane = len(tv.lanes) - 1
+
+	// Adjust scroll to keep selection visible
+	_, _, _, height := tv.GetInnerRect()
+	visibleLanes := height - 3
+	if tv.selectedLane >= tv.scrollY+visibleLanes {
+		tv.scrollY = tv.selectedLane - visibleLanes + 1
+	}
+
+	if old != tv.selectedLane && tv.onSelectionChange != nil {
+		tv.onSelectionChange(&tv.lanes[tv.selectedLane])
+	}
+}
+
 // scroll horizontally scrolls the timeline.
 func (tv *TimelineView) scroll(delta int) {
 	tv.scrollX += delta

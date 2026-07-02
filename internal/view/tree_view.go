@@ -288,3 +288,28 @@ func (etv *EventTreeView) NodeCount() int {
 	})
 	return count - 1 // Exclude root
 }
+
+// JumpToFirst selects the first event node in the tree.
+func (etv *EventTreeView) JumpToFirst() {
+	children := etv.root.GetChildren()
+	if len(children) > 0 {
+		etv.SetCurrentNode(children[0])
+	}
+}
+
+// JumpToLast selects the last visible event node in the tree.
+func (etv *EventTreeView) JumpToLast() {
+	node := etv.findLastVisible(etv.root)
+	if node != nil && node != etv.root {
+		etv.SetCurrentNode(node)
+	}
+}
+
+// findLastVisible returns the last visible (expanded) node in the subtree.
+func (etv *EventTreeView) findLastVisible(node *tview.TreeNode) *tview.TreeNode {
+	children := node.GetChildren()
+	if len(children) == 0 || !node.IsExpanded() {
+		return node
+	}
+	return etv.findLastVisible(children[len(children)-1])
+}

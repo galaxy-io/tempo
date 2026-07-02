@@ -3,7 +3,8 @@ module github.com/galaxy-io/tempo
 go 1.25.2
 
 require (
-	github.com/atterpac/jig v0.1.1
+	github.com/BurntSushi/toml v1.6.0
+	github.com/atterpac/jig v0.1.5
 	github.com/creativeprojects/go-selfupdate v1.5.2
 	github.com/gdamore/tcell/v2 v2.13.4
 	github.com/rivo/tview v0.42.0

@@ -78,6 +78,10 @@ type Provider interface {
 	// SignalWorkflow sends a signal to a running workflow execution.
 	SignalWorkflow(ctx context.Context, namespace, workflowID, runID, signalName string, input []byte) error
 
+	// StartWorkflow starts a new workflow execution.
+	// Returns the run ID of the started workflow.
+	StartWorkflow(ctx context.Context, namespace string, req StartWorkflowRequest) (string, error)
+
 	// SignalWithStartWorkflow starts a workflow if it doesn't exist and sends a signal to it.
 	// Returns the run ID of the workflow.
 	SignalWithStartWorkflow(ctx context.Context, namespace string, req SignalWithStartRequest) (string, error)
@@ -235,8 +239,12 @@ type EnhancedHistoryEvent struct {
 	TaskQueue string
 	Identity  string
 	Failure   string
-	Result    string
-	Input     string // Workflow/Activity input
+	// Failure metadata mirrors Temporal failure fields for richer diagnostics.
+	FailureSource     string
+	FailureStackTrace string
+	FailureCause      string
+	Result            string
+	Input             string // Workflow/Activity input
 }
 
 // TaskQueueInfo represents task queue status information.
@@ -257,19 +265,28 @@ type Poller struct {
 
 // Schedule represents a Temporal schedule.
 type Schedule struct {
-	ID             string
-	Spec           string // Human-readable schedule specification
-	WorkflowType   string
-	WorkflowID     string // Base workflow ID
-	TaskQueue      string
-	Paused         bool
-	Notes          string
-	NextRunTime    *time.Time
-	LastRunTime    *time.Time
-	LastRunStatus  string
-	TotalActions   int64
-	RecentActions  int64 // Actions in the last 24h
-	OverlapPolicy  string
+	ID            string
+	Spec          string // Human-readable schedule specification
+	WorkflowType  string
+	WorkflowID    string // Base workflow ID
+	TaskQueue     string
+	Paused        bool
+	Notes         string
+	NextRunTime   *time.Time
+	LastRunTime   *time.Time
+	LastRunStatus string
+	TotalActions  int64
+	RecentActions int64 // Actions in the last 24h
+	RecentRuns    []ScheduleRun
+	OverlapPolicy string
+}
+
+// ScheduleRun represents a workflow execution started by a schedule action.
+type ScheduleRun struct {
+	WorkflowID   string
+	RunID        string
+	ScheduleTime time.Time
+	ActualTime   time.Time
 }
 
 // ConnectionConfig holds Temporal server connection settings.
@@ -281,7 +298,8 @@ type ConnectionConfig struct {
 	TLSCAPath     string
 	TLSServerName string
 	TLSSkipVerify bool
-	APIKey        string // For Temporal Cloud API key authentication
+	APIKey        string            // For Temporal Cloud API key authentication
+	GRPCMeta      map[string]string // Custom gRPC metadata headers attached to every request
 }
 
 // DefaultConnectionConfig returns default connection settings.
@@ -320,6 +338,14 @@ type ResetPoint struct {
 	Timestamp   time.Time
 	Description string // Human-readable description (e.g., "Activity 'ProcessPayment' failed")
 	Reason      string // Why this is a valid reset point
+}
+
+// StartWorkflowRequest contains parameters for starting a new workflow execution.
+type StartWorkflowRequest struct {
+	WorkflowID   string
+	WorkflowType string
+	TaskQueue    string
+	Input        []byte // JSON-encoded workflow input
 }
 
 // SignalWithStartRequest contains parameters for starting a workflow with a signal.

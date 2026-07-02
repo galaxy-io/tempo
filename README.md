@@ -7,6 +7,7 @@ A [Temporal](https://temporal.io) TUI that matches your rhythm
 [![GitHub Release](https://img.shields.io/github/v/release/galaxy-io/tempo)](https://github.com/galaxy-io/tempo/releases)
 [![License](https://img.shields.io/github/license/galaxy-io/tempo)](https://github.com/galaxy-io/tempo/blob/main/LICENSE)
 ![GitHub Downloads](https://img.shields.io/github/downloads/galaxy-io/tempo/total)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/galaxy-io/tempo)
 
 </div>
 

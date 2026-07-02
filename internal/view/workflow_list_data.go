@@ -15,6 +15,16 @@ func (wl *WorkflowList) setLoading(loading bool) {
 }
 
 func (wl *WorkflowList) loadData() {
+	if wl.preloaded {
+		go func() {
+			wl.app.JigApp().QueueUpdateDraw(func() {
+				wl.populateTable()
+				wl.updateStats()
+			})
+		}()
+		return
+	}
+
 	provider := wl.app.Provider()
 	if provider == nil {
 		wl.loadMockData()

@@ -37,6 +37,7 @@ type WorkflowList struct {
 	serverCompletions   []string            // Cached completions from server query
 	lastCompletionQuery string              // Last query sent to server (to avoid duplicates)
 	originalWorkflows   []temporal.Workflow // Original workflows before server search
+	preloaded           bool               // True if workflows were provided at construction time
 }
 
 // NewWorkflowList creates a new workflow list view.
@@ -58,6 +59,36 @@ func NewWorkflowList(app *App, namespace string) *WorkflowList {
 	theme.RegisterRefreshable(wl)
 
 	return wl
+}
+
+// NewWorkflowListWithData creates a workflow list pre-populated with data (no server fetch).
+func NewWorkflowListWithData(app *App, namespace string, workflows []temporal.Workflow) *WorkflowList {
+	wl := &WorkflowList{
+		app:            app,
+		namespace:      namespace,
+		table:          components.NewTable(),
+		preview:        tview.NewTextView(),
+		allWorkflows:   workflows,
+		workflows:      workflows,
+		stopRefresh:    make(chan struct{}, 1),
+		searchHistory:  make([]string, 0, 50),
+		historyIndex:   -1,
+		maxHistorySize: 50,
+		preloaded:      true,
+	}
+	wl.setup()
+
+	theme.RegisterRefreshable(wl)
+	return wl
+}
+
+// CommandContext returns the workflow ID, run ID, and type of the currently selected row.
+func (wl *WorkflowList) CommandContext() (workflowID, runID, workflowType string) {
+	row := wl.table.SelectedRow()
+	if row >= 0 && row < len(wl.workflows) {
+		return wl.workflows[row].ID, wl.workflows[row].RunID, wl.workflows[row].Type
+	}
+	return "", "", ""
 }
 
 func (wl *WorkflowList) setup() {
@@ -246,6 +277,10 @@ func (wl *WorkflowList) Start() {
 			}
 			return false
 		}).
+		OnRune('N', func(e *tcell.EventKey) bool {
+			wl.showStartWorkflow()
+			return true
+		}).
 		OnRune('W', func(e *tcell.EventKey) bool {
 			wl.showSignalWithStart()
 			return true
@@ -320,6 +355,7 @@ func (wl *WorkflowList) Hints() []KeyHint {
 		KeyHint{Key: "d", Description: "Diff"},
 		KeyHint{Key: "o", Description: "Overview"},
 		KeyHint{Key: "v", Description: "Select Mode"},
+		KeyHint{Key: "N", Description: "Start"},
 		KeyHint{Key: "W", Description: "Signal+Start"},
 		KeyHint{Key: "y", Description: "Copy ID"},
 		KeyHint{Key: "r", Description: "Refresh"},

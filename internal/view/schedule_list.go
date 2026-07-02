@@ -81,6 +81,12 @@ func (sl *ScheduleList) setup() {
 			sl.updatePreview(sl.schedules[row-1])
 		}
 	})
+
+	sl.table.SetOnSelect(func(row int) {
+		if row >= 0 && row < len(sl.schedules) {
+			sl.viewRecentRuns()
+		}
+	})
 }
 
 func (sl *ScheduleList) togglePreview() {
@@ -103,6 +109,7 @@ func (sl *ScheduleList) RefreshTheme() {
 }
 
 func (sl *ScheduleList) updatePreview(s temporal.Schedule) {
+	now := time.Now()
 	pauseStatus := "Active"
 	pauseColor := temporal.StatusCompleted.ColorTag()
 	if s.Paused {
@@ -112,13 +119,15 @@ func (sl *ScheduleList) updatePreview(s temporal.Schedule) {
 
 	nextRun := "-"
 	if s.NextRunTime != nil {
-		nextRun = formatRelativeTime(time.Now(), *s.NextRunTime)
+		nextRun = formatRelativeTime(now, *s.NextRunTime)
 	}
 
 	lastRun := "-"
 	if s.LastRunTime != nil {
-		lastRun = formatRelativeTime(time.Now(), *s.LastRunTime)
+		lastRun = formatRelativeTime(now, *s.LastRunTime)
 	}
+
+	recentRuns := formatScheduleRecentRuns(now, s.RecentRuns)
 
 	text := fmt.Sprintf(`[%s::b]Schedule[-:-:-]
 [%s]%s[-]
@@ -138,6 +147,9 @@ func (sl *ScheduleList) updatePreview(s temporal.Schedule) {
 [%s]Last Run[-]
 [%s]%s[-]
 
+[%s]Recent Runs[-]
+%s
+
 [%s]Total Actions[-]
 [%s]%d[-]
 
@@ -156,11 +168,48 @@ func (sl *ScheduleList) updatePreview(s temporal.Schedule) {
 		theme.TagFgDim(),
 		theme.TagFg(), lastRun,
 		theme.TagFgDim(),
+		recentRuns,
+		theme.TagFgDim(),
 		theme.TagFg(), s.TotalActions,
 		theme.TagFgDim(),
 		theme.TagFgDim(), s.Notes,
 	)
 	sl.preview.SetText(text)
+}
+
+func formatScheduleRecentRuns(now time.Time, runs []temporal.ScheduleRun) string {
+	if len(runs) == 0 {
+		return fmt.Sprintf("[%s]No recent runs[-]", theme.TagFgDim())
+	}
+
+	lines := make([]string, 0, len(runs)*2)
+	for i := len(runs) - 1; i >= 0; i-- {
+		run := runs[i]
+
+		when := "-"
+		if !run.ActualTime.IsZero() {
+			when = formatRelativeTime(now, run.ActualTime)
+		} else if !run.ScheduleTime.IsZero() {
+			when = formatRelativeTime(now, run.ScheduleTime)
+		}
+
+		workflowID := run.WorkflowID
+		if workflowID == "" {
+			workflowID = "(workflow unavailable)"
+		}
+
+		runID := run.RunID
+		if runID == "" {
+			runID = "(run unavailable)"
+		}
+
+		lines = append(lines,
+			fmt.Sprintf("[%s]%s[-] [%s]%s[-]", theme.TagAccent(), when, theme.TagFg(), truncate(workflowID, 42)),
+			fmt.Sprintf("[%s]run[-] [%s]%s[-]", theme.TagFgDim(), theme.TagFgDim(), truncate(runID, 32)),
+		)
+	}
+
+	return strings.Join(lines, "\n")
 }
 
 func (sl *ScheduleList) applyFilter(query string) {
@@ -220,6 +269,10 @@ func (sl *ScheduleList) loadMockData() {
 			Paused:       false,
 			NextRunTime:  &nextRun,
 			LastRunTime:  &lastRun,
+			RecentRuns: []temporal.ScheduleRun{
+				{WorkflowID: "daily-report-20260311", RunID: "run-daily-report-1", ScheduleTime: now.Add(-1 * time.Hour), ActualTime: now.Add(-1 * time.Hour)},
+				{WorkflowID: "daily-report-20260310", RunID: "run-daily-report-0", ScheduleTime: now.Add(-25 * time.Hour), ActualTime: now.Add(-25 * time.Hour)},
+			},
 			TotalActions: 365,
 			Notes:        "Daily report generation",
 		},
@@ -230,6 +283,10 @@ func (sl *ScheduleList) loadMockData() {
 			Paused:       false,
 			NextRunTime:  &nextRun,
 			LastRunTime:  &lastRun,
+			RecentRuns: []temporal.ScheduleRun{
+				{WorkflowID: "hourly-cleanup-202603111100", RunID: "run-hourly-cleanup-1", ScheduleTime: now.Add(-1 * time.Hour), ActualTime: now.Add(-58 * time.Minute)},
+				{WorkflowID: "hourly-cleanup-202603111000", RunID: "run-hourly-cleanup-0", ScheduleTime: now.Add(-2 * time.Hour), ActualTime: now.Add(-2 * time.Hour)},
+			},
 			TotalActions: 2190,
 			Notes:        "Hourly cleanup tasks",
 		},
@@ -240,6 +297,9 @@ func (sl *ScheduleList) loadMockData() {
 			Paused:       true,
 			NextRunTime:  nil,
 			LastRunTime:  &lastRun,
+			RecentRuns: []temporal.ScheduleRun{
+				{WorkflowID: "weekly-backup-20260309", RunID: "run-weekly-backup-0", ScheduleTime: now.Add(-48 * time.Hour), ActualTime: now.Add(-48 * time.Hour)},
+			},
 			TotalActions: 52,
 			Notes:        "Weekly backups (paused)",
 		},
@@ -310,6 +370,103 @@ func (sl *ScheduleList) getSelectedSchedule() *temporal.Schedule {
 	return nil
 }
 
+func (sl *ScheduleList) viewRecentRuns() {
+	schedule := sl.getSelectedSchedule()
+	if schedule == nil {
+		return
+	}
+
+	workflows := scheduleRunsToWorkflowStubs(schedule.RecentRuns, sl.namespace, schedule.WorkflowType)
+	if len(workflows) == 0 {
+		sl.app.ShowToastWarning("Selected schedule has no workflow runs to display")
+		return
+	}
+
+	provider := sl.app.Provider()
+	if provider == nil {
+		wl := NewWorkflowListWithData(sl.app, sl.namespace, workflows)
+		sl.app.JigApp().Pages().Push(wl)
+		sl.app.JigApp().SetFocus(wl)
+		return
+	}
+
+	namespace := sl.namespace
+	async.NewLoader[[]temporal.Workflow]().
+		WithTimeout(15 * time.Second).
+		OnSuccess(func(workflows []temporal.Workflow) {
+			wl := NewWorkflowListWithData(sl.app, namespace, workflows)
+			sl.app.JigApp().Pages().Push(wl)
+			sl.app.JigApp().SetFocus(wl)
+		}).
+		OnError(func(err error) {
+			sl.app.ShowToastError(err.Error())
+		}).
+		Run(func(ctx context.Context) ([]temporal.Workflow, error) {
+			return sl.loadRecentRunWorkflows(ctx, namespace, *schedule)
+		})
+}
+
+func (sl *ScheduleList) loadRecentRunWorkflows(ctx context.Context, namespace string, schedule temporal.Schedule) ([]temporal.Workflow, error) {
+	provider := sl.app.Provider()
+	if provider == nil {
+		return scheduleRunsToWorkflowStubs(schedule.RecentRuns, namespace, schedule.WorkflowType), nil
+	}
+
+	if latest, err := provider.GetSchedule(ctx, namespace, schedule.ID); err == nil && latest != nil && len(latest.RecentRuns) > 0 {
+		schedule = *latest
+	}
+
+	workflows := scheduleRunsToWorkflowStubs(schedule.RecentRuns, namespace, schedule.WorkflowType)
+	resolved := make([]temporal.Workflow, 0, len(workflows))
+	for _, workflow := range workflows {
+		detail, err := provider.GetWorkflow(ctx, namespace, workflow.ID, workflow.RunID)
+		if err != nil {
+			resolved = append(resolved, workflow)
+			continue
+		}
+
+		if detail.Type == "" {
+			detail.Type = workflow.Type
+		}
+		if detail.StartTime.IsZero() {
+			detail.StartTime = workflow.StartTime
+		}
+		if detail.Namespace == "" {
+			detail.Namespace = namespace
+		}
+
+		resolved = append(resolved, *detail)
+	}
+
+	return resolved, nil
+}
+
+func scheduleRunsToWorkflowStubs(runs []temporal.ScheduleRun, namespace, workflowType string) []temporal.Workflow {
+	workflows := make([]temporal.Workflow, 0, len(runs))
+	for i := len(runs) - 1; i >= 0; i-- {
+		run := runs[i]
+		if run.WorkflowID == "" || run.RunID == "" {
+			continue
+		}
+
+		startTime := run.ActualTime
+		if startTime.IsZero() {
+			startTime = run.ScheduleTime
+		}
+
+		workflows = append(workflows, temporal.Workflow{
+			ID:        run.WorkflowID,
+			RunID:     run.RunID,
+			Type:      workflowType,
+			Status:    "Unknown",
+			Namespace: namespace,
+			StartTime: startTime,
+		})
+	}
+
+	return workflows
+}
+
 // Mutation methods - implemented using jig components
 
 func (sl *ScheduleList) showPauseConfirm() {
@@ -344,9 +501,9 @@ func (sl *ScheduleList) showPauseConfirm() {
 
 	form := components.NewFormBuilder().
 		Text("reason", "Reason").
-			Value("Paused via tempo").
-			Validate(validators.Required()).
-			Done().
+		Value("Paused via tempo").
+		Validate(validators.Required()).
+		Done().
 		OnSubmit(func(values map[string]any) {
 			reason := values["reason"].(string)
 			sl.closeModal()
@@ -391,9 +548,9 @@ func (sl *ScheduleList) showUnpauseConfirm(s *temporal.Schedule) {
 
 	form := components.NewFormBuilder().
 		Text("reason", "Reason").
-			Value("Unpaused via tempo").
-			Validate(validators.Required()).
-			Done().
+		Value("Unpaused via tempo").
+		Validate(validators.Required()).
+		Done().
 		OnSubmit(func(values map[string]any) {
 			reason := values["reason"].(string)
 			sl.closeModal()
@@ -554,9 +711,9 @@ This action cannot be undone.[-]
 
 	form := components.NewFormBuilder().
 		Text("confirm", "Type schedule ID to confirm").
-			Placeholder(schedule.ID).
-			Validate(validators.Required()).
-			Done().
+		Placeholder(schedule.ID).
+		Validate(validators.Required()).
+		Done().
 		OnSubmit(func(values map[string]any) {
 			confirm := values["confirm"].(string)
 			if confirm != schedule.ID {
@@ -635,6 +792,10 @@ func (sl *ScheduleList) Start() {
 			sl.showTriggerConfirm()
 			return true
 		}).
+		OnRune('v', func(e *tcell.EventKey) bool {
+			sl.viewRecentRuns()
+			return true
+		}).
 		OnRune('D', func(e *tcell.EventKey) bool {
 			sl.showDeleteConfirm()
 			return true
@@ -660,9 +821,11 @@ func (sl *ScheduleList) Hints() []KeyHint {
 		{Key: "/", Description: "Search"},
 		{Key: "r", Description: "Refresh"},
 		{Key: "j/k", Description: "Navigate"},
+		{Key: "Enter", Description: "View runs"},
 		{Key: "p", Description: "Preview"},
 		{Key: "P", Description: "Pause/Unpause"},
 		{Key: "t", Description: "Trigger"},
+		{Key: "v", Description: "View runs"},
 		{Key: "D", Description: "Delete"},
 		{Key: "T", Description: "Theme"},
 		{Key: "esc", Description: "Back"},

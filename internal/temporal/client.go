@@ -16,6 +16,7 @@ import (
 	"github.com/galaxy-io/tempo/internal/config"
 	commonpb "go.temporal.io/api/common/v1"
 	"go.temporal.io/api/enums/v1"
+	failurepb "go.temporal.io/api/failure/v1"
 	historypb "go.temporal.io/api/history/v1"
 	namespacepb "go.temporal.io/api/namespace/v1"
 	"go.temporal.io/api/operatorservice/v1"
@@ -70,6 +71,16 @@ func initLogFile() {
 	sdkLogger = &fileLogger{logger: log.New(f, "", log.Ldate|log.Ltime)}
 }
 
+// staticHeadersProvider implements the Temporal SDK HeadersProvider interface,
+// returning a fixed set of gRPC metadata headers on every outgoing request.
+type staticHeadersProvider struct {
+	headers map[string]string
+}
+
+func (p *staticHeadersProvider) GetHeaders(_ context.Context) (map[string]string, error) {
+	return p.headers, nil
+}
+
 // Client implements the Provider interface using the Temporal SDK.
 type Client struct {
 	client    client.Client
@@ -102,6 +113,11 @@ func NewClient(ctx context.Context, connConfig ConnectionConfig) (*Client, error
 			return nil, fmt.Errorf("failed to configure TLS: %w", err)
 		}
 		opts.ConnectionOptions.TLS = tlsConfig
+	}
+
+	// Attach custom gRPC metadata headers if configured
+	if len(connConfig.GRPCMeta) > 0 {
+		opts.HeadersProvider = &staticHeadersProvider{headers: connConfig.GRPCMeta}
 	}
 
 	c, err := client.DialContext(ctx, opts)
@@ -244,6 +260,11 @@ func (c *Client) reconnectWithConfig(ctx context.Context, connConfig ConnectionC
 			return fmt.Errorf("failed to configure TLS: %w", err)
 		}
 		opts.ConnectionOptions.TLS = tlsConfig
+	}
+
+	// Attach custom gRPC metadata headers if configured
+	if len(connConfig.GRPCMeta) > 0 {
+		opts.HeadersProvider = &staticHeadersProvider{headers: connConfig.GRPCMeta}
 	}
 
 	newClient, err := client.DialContext(ctx, opts)
@@ -691,10 +712,7 @@ func extractEnhancedEvent(event *historypb.HistoryEvent) EnhancedHistoryEvent {
 	case enums.EVENT_TYPE_WORKFLOW_EXECUTION_FAILED:
 		attrs := event.GetWorkflowExecutionFailedEventAttributes()
 		if attrs != nil && attrs.GetFailure() != nil {
-			he.Failure = attrs.GetFailure().GetMessage()
-			if attrs.GetFailure().GetStackTrace() != "" {
-				he.Failure += "\n\nStack Trace:\n" + attrs.GetFailure().GetStackTrace()
-			}
+			populateFailureDetails(&he, attrs.GetFailure())
 		}
 
 	case enums.EVENT_TYPE_WORKFLOW_EXECUTION_CANCELED:
@@ -745,7 +763,7 @@ func extractEnhancedEvent(event *historypb.HistoryEvent) EnhancedHistoryEvent {
 		if attrs != nil {
 			he.ScheduledEventID = attrs.GetScheduledEventId()
 			if attrs.GetFailure() != nil {
-				he.Failure = attrs.GetFailure().GetMessage()
+				populateFailureDetails(&he, attrs.GetFailure())
 			}
 		}
 
@@ -768,7 +786,7 @@ func extractEnhancedEvent(event *historypb.HistoryEvent) EnhancedHistoryEvent {
 			he.Attempt = attrs.GetAttempt()
 			he.Identity = attrs.GetIdentity()
 			if attrs.GetLastFailure() != nil {
-				he.Failure = attrs.GetLastFailure().GetMessage()
+				populateFailureDetails(&he, attrs.GetLastFailure())
 			}
 		}
 
@@ -789,7 +807,7 @@ func extractEnhancedEvent(event *historypb.HistoryEvent) EnhancedHistoryEvent {
 			he.ScheduledEventID = attrs.GetScheduledEventId()
 			he.StartedEventID = attrs.GetStartedEventId()
 			if attrs.GetFailure() != nil {
-				he.Failure = attrs.GetFailure().GetMessage()
+				populateFailureDetails(&he, attrs.GetFailure())
 			}
 		}
 
@@ -799,7 +817,7 @@ func extractEnhancedEvent(event *historypb.HistoryEvent) EnhancedHistoryEvent {
 			he.ScheduledEventID = attrs.GetScheduledEventId()
 			he.StartedEventID = attrs.GetStartedEventId()
 			if attrs.GetFailure() != nil {
-				he.Failure = attrs.GetFailure().GetMessage()
+				populateFailureDetails(&he, attrs.GetFailure())
 			}
 		}
 
@@ -883,7 +901,7 @@ func extractEnhancedEvent(event *historypb.HistoryEvent) EnhancedHistoryEvent {
 				he.ChildRunID = attrs.GetWorkflowExecution().GetRunId()
 			}
 			if attrs.GetFailure() != nil {
-				he.Failure = attrs.GetFailure().GetMessage()
+				populateFailureDetails(&he, attrs.GetFailure())
 			}
 		}
 
@@ -934,6 +952,39 @@ func extractEnhancedEvent(event *historypb.HistoryEvent) EnhancedHistoryEvent {
 	}
 
 	return he
+}
+
+func populateFailureDetails(event *EnhancedHistoryEvent, failure *failurepb.Failure) {
+	if failure == nil {
+		return
+	}
+	event.Failure = failure.GetMessage()
+	event.FailureSource = failure.GetSource()
+	event.FailureStackTrace = failure.GetStackTrace()
+	event.FailureCause = formatFailureCause(failure.GetCause())
+}
+
+func formatFailureCause(failure *failurepb.Failure) string {
+	if failure == nil {
+		return ""
+	}
+
+	var parts []string
+	for f := failure; f != nil; f = f.GetCause() {
+		var line strings.Builder
+		if f.GetSource() != "" {
+			line.WriteString(f.GetSource())
+			line.WriteString(": ")
+		}
+		line.WriteString(f.GetMessage())
+		if f.GetStackTrace() != "" {
+			line.WriteString("\n")
+			line.WriteString(f.GetStackTrace())
+		}
+		parts = append(parts, line.String())
+	}
+
+	return strings.Join(parts, "\n\nCaused by: ")
 }
 
 // formatEventType cleans up the event type string for display
@@ -1490,7 +1541,26 @@ func (c *Client) TerminateWorkflow(ctx context.Context, namespace, workflowID, r
 
 // SignalWorkflow sends a signal to a running workflow execution.
 func (c *Client) SignalWorkflow(ctx context.Context, namespace, workflowID, runID, signalName string, input []byte) error {
-	return c.client.SignalWorkflow(ctx, workflowID, runID, signalName, input)
+	return c.client.SignalWorkflow(ctx, workflowID, runID, signalName, json.RawMessage(input))
+}
+
+// StartWorkflow starts a new workflow execution.
+func (c *Client) StartWorkflow(ctx context.Context, namespace string, req StartWorkflowRequest) (string, error) {
+	opts := client.StartWorkflowOptions{
+		ID:        req.WorkflowID,
+		TaskQueue: req.TaskQueue,
+	}
+
+	args := []interface{}{}
+	if len(req.Input) > 0 {
+		args = append(args, json.RawMessage(req.Input))
+	}
+
+	run, err := c.client.ExecuteWorkflow(ctx, opts, req.WorkflowType, args...)
+	if err != nil {
+		return "", fmt.Errorf("failed to start workflow: %w", err)
+	}
+	return run.GetRunID(), nil
 }
 
 // SignalWithStartWorkflow starts a workflow if it doesn't exist and sends a signal to it.
@@ -1504,10 +1574,10 @@ func (c *Client) SignalWithStartWorkflow(ctx context.Context, namespace string, 
 		ctx,
 		req.WorkflowID,
 		req.SignalName,
-		req.SignalInput,
+		json.RawMessage(req.SignalInput),
 		opts,
 		req.WorkflowType,
-		req.WorkflowInput,
+		json.RawMessage(req.WorkflowInput),
 	)
 	if err != nil {
 		return "", fmt.Errorf("failed to signal with start workflow: %w", err)
@@ -1571,10 +1641,11 @@ func (c *Client) ListSchedules(ctx context.Context, namespace string, opts ListO
 			Paused:       entry.Paused,
 			Notes:        entry.Note,
 			WorkflowType: entry.WorkflowType.Name,
+			RecentRuns:   convertScheduleRuns(entry.RecentActions),
 		}
 
 		// Extract spec info
-		if entry.Spec != nil && len(entry.Spec.Intervals) > 0 {
+		if entry.Spec != nil {
 			schedule.Spec = formatScheduleSpec(entry.Spec)
 		}
 
@@ -1628,6 +1699,7 @@ func (c *Client) GetSchedule(ctx context.Context, namespace, scheduleID string) 
 
 	// Info from description
 	schedule.TotalActions = int64(desc.Info.NumActions)
+	schedule.RecentRuns = convertScheduleRuns(desc.Info.RecentActions)
 	if len(desc.Info.RecentActions) > 0 {
 		lastAction := desc.Info.RecentActions[len(desc.Info.RecentActions)-1]
 		t := lastAction.ActualTime
@@ -1667,6 +1739,27 @@ func (c *Client) TriggerSchedule(ctx context.Context, namespace, scheduleID stri
 func (c *Client) DeleteSchedule(ctx context.Context, namespace, scheduleID string) error {
 	handle := c.client.ScheduleClient().GetHandle(ctx, scheduleID)
 	return handle.Delete(ctx)
+}
+
+func convertScheduleRuns(actions []client.ScheduleActionResult) []ScheduleRun {
+	if len(actions) == 0 {
+		return nil
+	}
+
+	runs := make([]ScheduleRun, 0, len(actions))
+	for _, action := range actions {
+		run := ScheduleRun{
+			ScheduleTime: action.ScheduleTime,
+			ActualTime:   action.ActualTime,
+		}
+		if action.StartWorkflowResult != nil {
+			run.WorkflowID = action.StartWorkflowResult.WorkflowID
+			run.RunID = action.StartWorkflowResult.FirstExecutionRunID
+		}
+		runs = append(runs, run)
+	}
+
+	return runs
 }
 
 // formatScheduleSpec creates a human-readable schedule specification.
@@ -1793,8 +1886,8 @@ func (c *Client) GetResetPoints(ctx context.Context, namespace, workflowID, runI
 	var resetPoints []ResetPoint
 
 	// Track activity/timer state for building descriptions
-	activityInfo := make(map[int64]string)  // scheduledEventID -> activity type
-	timerInfo := make(map[int64]string)     // startedEventID -> timer ID
+	activityInfo := make(map[int64]string) // scheduledEventID -> activity type
+	timerInfo := make(map[int64]string)    // startedEventID -> timer ID
 
 	for _, event := range events {
 		// Track activity scheduled events
