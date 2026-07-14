@@ -59,7 +59,7 @@ brews:
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
     directory: Formula
     homepage: "https://github.com/galaxy-io/tempo"
-    description: "Terminal UI for Temporal workflow management"
+    description: "TUI Client for Temporal"
     license: "MIT"
     install: |
       bin.install "tempo"
