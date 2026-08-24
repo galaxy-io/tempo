@@ -53,7 +53,7 @@ func TestClientDecodesHistoryWithRemoteCodec(t *testing.T) {
 
 	client, err := NewClient(t.Context(), ConnectionConfig{
 		Address:       address,
-		Namespace:     "testing",
+		Namespace:     "profile-default",
 		CodecEndpoint: codecServer.URL + "/{namespace}",
 		CodecAuth:     "Bearer secret-token",
 	})

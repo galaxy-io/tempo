@@ -17,11 +17,10 @@ func LoadTemporalCLIProfiles() map[string]ConnectionConfig {
 		return nil
 	}
 
-	configDir := filepath.Join(home, ".config", "temporalio")
 	profiles := make(map[string]ConnectionConfig)
 
 	// Load YAML envs first (takes precedence)
-	yamlPath := filepath.Join(configDir, "temporal.yaml")
+	yamlPath := filepath.Join(home, ".config", "temporalio", "temporal.yaml")
 	yamlProfiles, err := loadTemporalEnvYAML(yamlPath)
 	if err == nil {
 		for name, cfg := range yamlProfiles {
@@ -30,7 +29,7 @@ func LoadTemporalCLIProfiles() map[string]ConnectionConfig {
 	}
 
 	// Load TOML profiles; YAML entries take precedence on conflict
-	tomlPath := filepath.Join(configDir, "temporal.toml")
+	tomlPath := temporalTOMLPath()
 	tomlProfiles, err := loadTemporalProfileTOML(tomlPath)
 	if err == nil {
 		for name, cfg := range tomlProfiles {
@@ -44,6 +43,17 @@ func LoadTemporalCLIProfiles() map[string]ConnectionConfig {
 		return nil
 	}
 	return profiles
+}
+
+func temporalTOMLPath() string {
+	if path := os.Getenv("TEMPORAL_CONFIG_FILE"); path != "" {
+		return path
+	}
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(configDir, "temporalio", "temporal.toml")
 }
 
 // temporalYAMLConfig represents the top-level structure of temporal.yaml.

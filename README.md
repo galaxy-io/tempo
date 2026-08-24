@@ -154,10 +154,11 @@ Tempo sends the namespace in the `X-Namespace` header and passes `codec.auth` as
 `Authorization` header. Environment variables in codec settings are expanded when a profile is
 loaded, which keeps credentials out of this file.
 
-Tempo also discovers environments from the Temporal CLI's
-`~/.config/temporalio/temporal.yaml` and `~/.config/temporalio/temporal.toml` files. They appear as
-read-only profiles named `import:<environment>`. Address, namespace, TLS, API key, and codec
-settings are loaded from the Temporal CLI configuration each time Tempo starts.
+Tempo also discovers environments from the Temporal CLI's legacy
+`~/.config/temporalio/temporal.yaml` file and its current TOML configuration. The TOML path comes
+from `TEMPORAL_CONFIG_FILE` when set, then falls back to the platform-specific user configuration
+directory. Imported environments appear as read-only profiles named `import:<environment>`.
+Address, namespace, TLS, API key, and codec settings are reloaded each time Tempo starts.
 
 ## Themes
 

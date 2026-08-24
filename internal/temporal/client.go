@@ -137,11 +137,34 @@ func buildClientOptions(connConfig ConnectionConfig) (client.Options, error) {
 	}
 
 	if connConfig.CodecEndpoint != "" {
-		codecEndpoint := strings.ReplaceAll(connConfig.CodecEndpoint, "{namespace}", connConfig.Namespace)
+		opts.ConnectionOptions.DialOptions = append(
+			opts.ConnectionOptions.DialOptions,
+			grpc.WithChainUnaryInterceptor(newPayloadCodecInterceptor(connConfig)),
+		)
+	}
+
+	return opts, nil
+}
+
+func newPayloadCodecInterceptor(connConfig ConnectionConfig) grpc.UnaryClientInterceptor {
+	return func(
+		ctx context.Context,
+		method string,
+		req, reply any,
+		cc *grpc.ClientConn,
+		invoker grpc.UnaryInvoker,
+		opts ...grpc.CallOption,
+	) error {
+		namespace := connConfig.Namespace
+		if namespaced, ok := req.(interface{ GetNamespace() string }); ok && namespaced.GetNamespace() != "" {
+			namespace = namespaced.GetNamespace()
+		}
+
+		codecEndpoint := strings.ReplaceAll(connConfig.CodecEndpoint, "{namespace}", namespace)
 		payloadCodec := converter.NewRemotePayloadCodec(converter.RemotePayloadCodecOptions{
 			Endpoint: codecEndpoint,
 			ModifyRequest: func(req *http.Request) error {
-				req.Header.Set("X-Namespace", connConfig.Namespace)
+				req.Header.Set("X-Namespace", namespace)
 				if connConfig.CodecAuth != "" {
 					req.Header.Set("Authorization", connConfig.CodecAuth)
 				}
@@ -154,15 +177,10 @@ func buildClientOptions(connConfig ConnectionConfig) (client.Options, error) {
 			},
 		)
 		if err != nil {
-			return client.Options{}, fmt.Errorf("failed to configure payload codec: %w", err)
+			return fmt.Errorf("failed to configure payload codec: %w", err)
 		}
-		opts.ConnectionOptions.DialOptions = append(
-			opts.ConnectionOptions.DialOptions,
-			grpc.WithChainUnaryInterceptor(interceptor),
-		)
+		return interceptor(ctx, method, req, reply, cc, invoker, opts...)
 	}
-
-	return opts, nil
 }
 
 // buildTLSConfig creates a TLS configuration from the connection config.
