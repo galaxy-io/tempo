@@ -30,6 +30,8 @@ var (
 	tlsCA         = flag.String("tls-ca", "", "Path to CA certificate (overrides profile)")
 	tlsServerName = flag.String("tls-server-name", "", "Server name for TLS verification (overrides profile)")
 	tlsSkipVerify = flag.Bool("tls-skip-verify", false, "Skip TLS verification (insecure)")
+	codecEndpoint = flag.String("codec-endpoint", "", "Remote payload codec endpoint (overrides profile)")
+	codecAuth     = flag.String("codec-auth", "", "Authorization header for codec requests (overrides profile)")
 	themeNameFlag = flag.String("theme", "", "Theme name (overrides config file)")
 	devMode       = flag.Bool("dev", false, "Development mode: test splash screen with theme cycling")
 	versionFlag   = flag.Bool("version", false, "Print version information and exit")
@@ -95,17 +97,7 @@ func main() {
 	profileConfig = profileConfig.ExpandEnv()
 
 	// Build temporal connection config from profile
-	connConfig := temporal.ConnectionConfig{
-		Address:       profileConfig.Address,
-		Namespace:     profileConfig.Namespace,
-		TLSCertPath:   profileConfig.TLS.Cert,
-		TLSKeyPath:    profileConfig.TLS.Key,
-		TLSCAPath:     profileConfig.TLS.CA,
-		TLSServerName: profileConfig.TLS.ServerName,
-		TLSSkipVerify: profileConfig.TLS.SkipVerify,
-		APIKey:        profileConfig.APIKey,
-		GRPCMeta:      profileConfig.GRPCMeta,
-	}
+	connConfig := temporal.ConnectionConfigFromProfile(profileConfig)
 
 	// CLI flags override profile settings
 	if *address != "" {
@@ -129,6 +121,7 @@ func main() {
 	if *tlsSkipVerify {
 		connConfig.TLSSkipVerify = true
 	}
+	applyCodecOverrides(&connConfig, *codecEndpoint, *codecAuth)
 
 	// Run connection with UI
 	provider, err := connectWithUI(connConfig)
@@ -144,6 +137,15 @@ func main() {
 	if err := app.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
+	}
+}
+
+func applyCodecOverrides(connConfig *temporal.ConnectionConfig, endpoint, auth string) {
+	if endpoint != "" {
+		connConfig.CodecEndpoint = endpoint
+	}
+	if auth != "" && connConfig.CodecEndpoint != "" {
+		connConfig.CodecAuth = auth
 	}
 }
 

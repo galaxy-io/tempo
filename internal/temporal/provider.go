@@ -3,6 +3,8 @@ package temporal
 import (
 	"context"
 	"time"
+
+	"github.com/galaxy-io/tempo/internal/config"
 )
 
 // Provider defines the interface for Temporal data access.
@@ -300,6 +302,25 @@ type ConnectionConfig struct {
 	TLSSkipVerify bool
 	APIKey        string            // For Temporal Cloud API key authentication
 	GRPCMeta      map[string]string // Custom gRPC metadata headers attached to every request
+	CodecEndpoint string
+	CodecAuth     string
+}
+
+// ConnectionConfigFromProfile translates an application profile into SDK connection settings.
+func ConnectionConfigFromProfile(profile config.ConnectionConfig) ConnectionConfig {
+	return ConnectionConfig{
+		Address:       profile.Address,
+		Namespace:     profile.Namespace,
+		TLSCertPath:   profile.TLS.Cert,
+		TLSKeyPath:    profile.TLS.Key,
+		TLSCAPath:     profile.TLS.CA,
+		TLSServerName: profile.TLS.ServerName,
+		TLSSkipVerify: profile.TLS.SkipVerify,
+		APIKey:        profile.APIKey,
+		GRPCMeta:      profile.GRPCMeta,
+		CodecEndpoint: profile.Codec.Endpoint,
+		CodecAuth:     profile.Codec.Auth,
+	}
 }
 
 // DefaultConnectionConfig returns default connection settings.

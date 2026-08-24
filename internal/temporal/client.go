@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,6 +24,8 @@ import (
 	"go.temporal.io/api/taskqueue/v1"
 	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/converter"
+	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
@@ -94,30 +97,9 @@ func NewClient(ctx context.Context, connConfig ConnectionConfig) (*Client, error
 	// Redirect logs to file instead of stdout
 	initLogFile()
 
-	opts := client.Options{
-		HostPort:  connConfig.Address,
-		Namespace: connConfig.Namespace,
-		Logger:    sdkLogger,
-	}
-
-	// Configure authentication
-	if connConfig.APIKey != "" {
-		// API Key authentication (Temporal Cloud)
-		opts.Credentials = client.NewAPIKeyStaticCredentials(connConfig.APIKey)
-		// API key auth requires TLS but doesn't need client certificates
-		opts.ConnectionOptions.TLS = &tls.Config{}
-	} else if connConfig.TLSCertPath != "" || connConfig.TLSCAPath != "" || connConfig.TLSSkipVerify {
-		// mTLS authentication
-		tlsConfig, err := buildTLSConfig(connConfig)
-		if err != nil {
-			return nil, fmt.Errorf("failed to configure TLS: %w", err)
-		}
-		opts.ConnectionOptions.TLS = tlsConfig
-	}
-
-	// Attach custom gRPC metadata headers if configured
-	if len(connConfig.GRPCMeta) > 0 {
-		opts.HeadersProvider = &staticHeadersProvider{headers: connConfig.GRPCMeta}
+	opts, err := buildClientOptions(connConfig)
+	if err != nil {
+		return nil, err
 	}
 
 	c, err := client.DialContext(ctx, opts)
@@ -130,6 +112,57 @@ func NewClient(ctx context.Context, connConfig ConnectionConfig) (*Client, error
 		config:    connConfig,
 		connected: true,
 	}, nil
+}
+
+func buildClientOptions(connConfig ConnectionConfig) (client.Options, error) {
+	opts := client.Options{
+		HostPort:  connConfig.Address,
+		Namespace: connConfig.Namespace,
+		Logger:    sdkLogger,
+	}
+
+	if connConfig.APIKey != "" {
+		opts.Credentials = client.NewAPIKeyStaticCredentials(connConfig.APIKey)
+		opts.ConnectionOptions.TLS = &tls.Config{}
+	} else if connConfig.TLSCertPath != "" || connConfig.TLSCAPath != "" || connConfig.TLSSkipVerify {
+		tlsConfig, err := buildTLSConfig(connConfig)
+		if err != nil {
+			return client.Options{}, fmt.Errorf("failed to configure TLS: %w", err)
+		}
+		opts.ConnectionOptions.TLS = tlsConfig
+	}
+
+	if len(connConfig.GRPCMeta) > 0 {
+		opts.HeadersProvider = &staticHeadersProvider{headers: connConfig.GRPCMeta}
+	}
+
+	if connConfig.CodecEndpoint != "" {
+		codecEndpoint := strings.ReplaceAll(connConfig.CodecEndpoint, "{namespace}", connConfig.Namespace)
+		payloadCodec := converter.NewRemotePayloadCodec(converter.RemotePayloadCodecOptions{
+			Endpoint: codecEndpoint,
+			ModifyRequest: func(req *http.Request) error {
+				req.Header.Set("X-Namespace", connConfig.Namespace)
+				if connConfig.CodecAuth != "" {
+					req.Header.Set("Authorization", connConfig.CodecAuth)
+				}
+				return nil
+			},
+		})
+		interceptor, err := converter.NewPayloadCodecGRPCClientInterceptor(
+			converter.PayloadCodecGRPCClientInterceptorOptions{
+				Codecs: []converter.PayloadCodec{payloadCodec},
+			},
+		)
+		if err != nil {
+			return client.Options{}, fmt.Errorf("failed to configure payload codec: %w", err)
+		}
+		opts.ConnectionOptions.DialOptions = append(
+			opts.ConnectionOptions.DialOptions,
+			grpc.WithChainUnaryInterceptor(interceptor),
+		)
+	}
+
+	return opts, nil
 }
 
 // buildTLSConfig creates a TLS configuration from the connection config.
@@ -241,30 +274,9 @@ func (c *Client) reconnectWithConfig(ctx context.Context, connConfig ConnectionC
 	c.connected = false
 	c.mu.Unlock()
 
-	opts := client.Options{
-		HostPort:  connConfig.Address,
-		Namespace: connConfig.Namespace,
-		Logger:    sdkLogger,
-	}
-
-	// Configure authentication
-	if connConfig.APIKey != "" {
-		// API Key authentication (Temporal Cloud)
-		opts.Credentials = client.NewAPIKeyStaticCredentials(connConfig.APIKey)
-		// API key auth requires TLS but doesn't need client certificates
-		opts.ConnectionOptions.TLS = &tls.Config{}
-	} else if connConfig.TLSCertPath != "" || connConfig.TLSCAPath != "" || connConfig.TLSSkipVerify {
-		// mTLS authentication
-		tlsConfig, err := buildTLSConfig(connConfig)
-		if err != nil {
-			return fmt.Errorf("failed to configure TLS: %w", err)
-		}
-		opts.ConnectionOptions.TLS = tlsConfig
-	}
-
-	// Attach custom gRPC metadata headers if configured
-	if len(connConfig.GRPCMeta) > 0 {
-		opts.HeadersProvider = &staticHeadersProvider{headers: connConfig.GRPCMeta}
+	opts, err := buildClientOptions(connConfig)
+	if err != nil {
+		return err
 	}
 
 	newClient, err := client.DialContext(ctx, opts)

@@ -19,6 +19,12 @@ type TLSConfig struct {
 	SkipVerify bool   `yaml:"skip_verify,omitempty"`
 }
 
+// CodecConfig holds remote payload codec settings.
+type CodecConfig struct {
+	Endpoint string `yaml:"endpoint,omitempty"`
+	Auth     string `yaml:"auth,omitempty"`
+}
+
 // CommandOutputType defines how command output should be displayed.
 type CommandOutputType string
 
@@ -39,12 +45,13 @@ type CommandConfig struct {
 
 // ConnectionConfig holds Temporal connection settings.
 type ConnectionConfig struct {
-	Address   string                    `yaml:"address"`
-	Namespace string                    `yaml:"namespace"`
-	TLS       TLSConfig                 `yaml:"tls,omitempty"`
-	APIKey    string                    `yaml:"api_key,omitempty"` // For Temporal Cloud API key authentication
-	GRPCMeta  map[string]string         `yaml:"grpc_meta,omitempty"` // Custom gRPC metadata headers (KEY=VALUE pairs)
-	Commands  map[string]CommandConfig  `yaml:"commands,omitempty"`
+	Address   string                   `yaml:"address"`
+	Namespace string                   `yaml:"namespace"`
+	TLS       TLSConfig                `yaml:"tls,omitempty"`
+	Codec     CodecConfig              `yaml:"codec,omitempty"`
+	APIKey    string                   `yaml:"api_key,omitempty"`   // For Temporal Cloud API key authentication
+	GRPCMeta  map[string]string        `yaml:"grpc_meta,omitempty"` // Custom gRPC metadata headers (KEY=VALUE pairs)
+	Commands  map[string]CommandConfig `yaml:"commands,omitempty"`
 }
 
 // ExpandEnv expands environment variables in sensitive fields.
@@ -54,8 +61,12 @@ func (c ConnectionConfig) ExpandEnv() ConnectionConfig {
 		Address:   c.Address,
 		Namespace: c.Namespace,
 		TLS:       c.TLS,
-		APIKey:    expandEnvVar(c.APIKey),
-		Commands:  c.Commands,
+		Codec: CodecConfig{
+			Endpoint: expandEnvVar(c.Codec.Endpoint),
+			Auth:     expandEnvVar(c.Codec.Auth),
+		},
+		APIKey:   expandEnvVar(c.APIKey),
+		Commands: c.Commands,
 	}
 	if len(c.GRPCMeta) > 0 {
 		expanded.GRPCMeta = make(map[string]string, len(c.GRPCMeta))

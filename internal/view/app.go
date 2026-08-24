@@ -1164,17 +1164,7 @@ func (a *App) SwitchProfile(name string) {
 	}
 	profileCfg = profileCfg.ExpandEnv()
 
-	connConfig := temporal.ConnectionConfig{
-		Address:       profileCfg.Address,
-		Namespace:     profileCfg.Namespace,
-		TLSCertPath:   profileCfg.TLS.Cert,
-		TLSKeyPath:    profileCfg.TLS.Key,
-		TLSCAPath:     profileCfg.TLS.CA,
-		TLSServerName: profileCfg.TLS.ServerName,
-		TLSSkipVerify: profileCfg.TLS.SkipVerify,
-		APIKey:        profileCfg.APIKey,
-		GRPCMeta:      profileCfg.GRPCMeta,
-	}
+	connConfig := temporal.ConnectionConfigFromProfile(profileCfg)
 
 	// Stop current views
 	if current := a.app.Pages().Current(); current != nil {
