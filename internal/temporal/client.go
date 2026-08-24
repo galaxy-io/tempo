@@ -249,11 +249,7 @@ func (c *Client) CheckConnection(ctx context.Context) error {
 		return fmt.Errorf("client is nil")
 	}
 
-	// Make a lightweight API call to check connection
-	// ListNamespaces with PageSize 1 is a good health check
-	_, err := cl.WorkflowService().ListNamespaces(ctx, &workflowservice.ListNamespacesRequest{
-		PageSize: 1,
-	})
+	_, err := cl.CheckHealth(ctx, &client.CheckHealthRequest{})
 	if err != nil {
 		c.mu.Lock()
 		c.connected = false
