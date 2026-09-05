@@ -51,12 +51,8 @@ release:
   draft: false
   prerelease: auto
 
-homebrew_casks:
+brews:
   - name: tempo
-    ids:
-      - tempo
-    binaries:
-      - tempo
     repository:
       owner: galaxy-io
       name: homebrew-tap
@@ -64,12 +60,11 @@ homebrew_casks:
     commit_author:
       name: gx-null[bot]
       email: 286761379+gx-null[bot]@users.noreply.github.com
-    directory: Casks
+    directory: Formula
     homepage: "https://github.com/galaxy-io/tempo"
     description: "TUI Client for Temporal"
-    hooks:
-      post:
-        install: |
-          if OS.mac?
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/tempo"]
-          end
+    license: "MIT"
+    install: |
+      bin.install "tempo"
+    test: |
+      system "#{bin}/tempo", "--version"
