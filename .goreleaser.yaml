@@ -57,6 +57,9 @@ brews:
       owner: galaxy-io
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    commit_author:
+      name: gx-null[bot]
+      email: 286761379+gx-null[bot]@users.noreply.github.com
     directory: Formula
     homepage: "https://github.com/galaxy-io/tempo"
     description: "TUI Client for Temporal"
