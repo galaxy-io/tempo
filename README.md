@@ -65,6 +65,14 @@ Brew installed versions will not recieve auto-updates you must update with `brew
 brew install galaxy-io/tap/tempo
 ```
 
+### X-CMD
+
+Maybe using [x-cmd](https://www.x-cmd.com/mod/eget):
+
+```bash
+x eget use galaxy-io/tempo
+```
+
 ### Build Locally
 
 ```bash
