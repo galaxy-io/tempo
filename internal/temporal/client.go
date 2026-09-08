@@ -165,6 +165,9 @@ func newPayloadCodecInterceptor(connConfig ConnectionConfig) grpc.UnaryClientInt
 			Endpoint: codecEndpoint,
 			ModifyRequest: func(req *http.Request) error {
 				req.Header.Set("X-Namespace", namespace)
+				for headerName, headerValue := range connConfig.CodecHeaders {
+					req.Header.Set(headerName, headerValue)
+				}
 				if connConfig.CodecAuth != "" {
 					req.Header.Set("Authorization", connConfig.CodecAuth)
 				}

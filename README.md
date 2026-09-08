@@ -95,6 +95,7 @@ tempo --address localhost:7233 // default dev server address loads without flag
 | `--tls-skip-verify` | Skip TLS verification (insecure)      |
 | `--codec-endpoint`  | Remote payload codec endpoint          |
 | `--codec-auth`      | Authorization header for codec requests |
+| `--codec-header`    | Codec request header (`KEY=VALUE`, repeatable) |
 | `--theme`           | Theme name                            |
 
 ### Keybindings
@@ -147,12 +148,14 @@ profiles:
     codec:
       endpoint: https://codec.example.com/{namespace}
       auth: ${TEMPO_CODEC_AUTH}
+      headers:
+        X-Codec-Tenant: payments
 ```
 
 The optional `{namespace}` placeholder in a codec endpoint is replaced with the active namespace.
-Tempo sends the namespace in the `X-Namespace` header and passes `codec.auth` as the
-`Authorization` header. Environment variables in codec settings are expanded when a profile is
-loaded, which keeps credentials out of this file.
+Tempo sends the namespace in the `X-Namespace` header, passes `codec.auth` as the
+`Authorization` header, and includes any entries from `codec.headers`. Environment variables in
+codec settings are expanded when a profile is loaded, which keeps credentials out of this file.
 
 Tempo also discovers environments from the Temporal CLI's legacy
 `~/.config/temporalio/temporal.yaml` file and its current TOML configuration. The TOML path comes

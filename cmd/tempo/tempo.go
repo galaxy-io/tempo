@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,6 +21,27 @@ import (
 	"github.com/rivo/tview"
 )
 
+type codecHeaderFlags map[string]string
+
+func (h *codecHeaderFlags) String() string {
+	if h == nil {
+		return ""
+	}
+	return fmt.Sprint(map[string]string(*h))
+}
+
+func (h *codecHeaderFlags) Set(value string) error {
+	key, headerValue, ok := strings.Cut(value, "=")
+	if !ok || strings.TrimSpace(key) == "" {
+		return fmt.Errorf("invalid codec header %q: expected KEY=VALUE", value)
+	}
+	if *h == nil {
+		*h = make(codecHeaderFlags)
+	}
+	(*h)[key] = headerValue
+	return nil
+}
+
 // CLI flags
 var (
 	profileName   = flag.String("profile", "", "Connection profile name (from config)")
@@ -32,10 +54,15 @@ var (
 	tlsSkipVerify = flag.Bool("tls-skip-verify", false, "Skip TLS verification (insecure)")
 	codecEndpoint = flag.String("codec-endpoint", "", "Remote payload codec endpoint (overrides profile)")
 	codecAuth     = flag.String("codec-auth", "", "Authorization header for codec requests (overrides profile)")
+	codecHeaders  codecHeaderFlags
 	themeNameFlag = flag.String("theme", "", "Theme name (overrides config file)")
 	devMode       = flag.Bool("dev", false, "Development mode: test splash screen with theme cycling")
 	versionFlag   = flag.Bool("version", false, "Print version information and exit")
 )
+
+func init() {
+	flag.Var(&codecHeaders, "codec-header", "HTTP header for codec requests as KEY=VALUE (repeatable)")
+}
 
 const (
 	maxRetries     = 5
@@ -121,7 +148,7 @@ func main() {
 	if *tlsSkipVerify {
 		connConfig.TLSSkipVerify = true
 	}
-	applyCodecOverrides(&connConfig, *codecEndpoint, *codecAuth)
+	applyCodecOverrides(&connConfig, *codecEndpoint, *codecAuth, codecHeaders)
 
 	// Run connection with UI
 	provider, err := connectWithUI(connConfig)
@@ -140,12 +167,24 @@ func main() {
 	}
 }
 
-func applyCodecOverrides(connConfig *temporal.ConnectionConfig, endpoint, auth string) {
+func applyCodecOverrides(
+	connConfig *temporal.ConnectionConfig,
+	endpoint, auth string,
+	headers map[string]string,
+) {
 	if endpoint != "" {
 		connConfig.CodecEndpoint = endpoint
 	}
 	if auth != "" && connConfig.CodecEndpoint != "" {
 		connConfig.CodecAuth = auth
+	}
+	if len(headers) > 0 {
+		if connConfig.CodecHeaders == nil {
+			connConfig.CodecHeaders = make(map[string]string, len(headers))
+		}
+		for key, value := range headers {
+			connConfig.CodecHeaders[key] = value
+		}
 	}
 }
 

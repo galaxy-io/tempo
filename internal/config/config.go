@@ -21,8 +21,9 @@ type TLSConfig struct {
 
 // CodecConfig holds remote payload codec settings.
 type CodecConfig struct {
-	Endpoint string `yaml:"endpoint,omitempty"`
-	Auth     string `yaml:"auth,omitempty"`
+	Endpoint string            `yaml:"endpoint,omitempty"`
+	Auth     string            `yaml:"auth,omitempty"`
+	Headers  map[string]string `yaml:"headers,omitempty"`
 }
 
 // CommandOutputType defines how command output should be displayed.
@@ -67,6 +68,12 @@ func (c ConnectionConfig) ExpandEnv() ConnectionConfig {
 		},
 		APIKey:   expandEnvVar(c.APIKey),
 		Commands: c.Commands,
+	}
+	if len(c.Codec.Headers) > 0 {
+		expanded.Codec.Headers = make(map[string]string, len(c.Codec.Headers))
+		for k, v := range c.Codec.Headers {
+			expanded.Codec.Headers[k] = expandEnvVar(v)
+		}
 	}
 	if len(c.GRPCMeta) > 0 {
 		expanded.GRPCMeta = make(map[string]string, len(c.GRPCMeta))

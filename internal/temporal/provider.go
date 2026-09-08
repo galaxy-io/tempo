@@ -304,6 +304,7 @@ type ConnectionConfig struct {
 	GRPCMeta      map[string]string // Custom gRPC metadata headers attached to every request
 	CodecEndpoint string
 	CodecAuth     string
+	CodecHeaders  map[string]string
 }
 
 // ConnectionConfigFromProfile translates an application profile into SDK connection settings.
@@ -320,6 +321,7 @@ func ConnectionConfigFromProfile(profile config.ConnectionConfig) ConnectionConf
 		GRPCMeta:      profile.GRPCMeta,
 		CodecEndpoint: profile.Codec.Endpoint,
 		CodecAuth:     profile.Codec.Auth,
+		CodecHeaders:  profile.Codec.Headers,
 	}
 }
 

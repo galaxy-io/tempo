@@ -13,6 +13,7 @@ func TestConnectionConfigFromProfileIncludesCodecSettings(t *testing.T) {
 		Codec: config.CodecConfig{
 			Endpoint: "https://codec.example.com/{namespace}",
 			Auth:     "Bearer secret-token",
+			Headers:  map[string]string{"X-Codec-Tenant": "payments"},
 		},
 	})
 
@@ -21,5 +22,8 @@ func TestConnectionConfigFromProfileIncludesCodecSettings(t *testing.T) {
 	}
 	if want := "Bearer secret-token"; got.CodecAuth != want {
 		t.Fatalf("codec auth = %q, want %q", got.CodecAuth, want)
+	}
+	if want := "payments"; got.CodecHeaders["X-Codec-Tenant"] != want {
+		t.Fatalf("codec header = %q, want %q", got.CodecHeaders["X-Codec-Tenant"], want)
 	}
 }

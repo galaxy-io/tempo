@@ -14,6 +14,9 @@ func TestConnectionConfigExpandEnvExpandsCodecCredentials(t *testing.T) {
 		Codec: CodecConfig{
 			Endpoint: "$TEMPO_CODEC_ENDPOINT/{namespace}",
 			Auth:     "$TEMPO_CODEC_AUTH",
+			Headers: map[string]string{
+				"X-Codec-Auth": "$TEMPO_CODEC_AUTH",
+			},
 		},
 	}).ExpandEnv()
 
@@ -22,6 +25,9 @@ func TestConnectionConfigExpandEnvExpandsCodecCredentials(t *testing.T) {
 	}
 	if got, want := expanded.Codec.Auth, "Bearer secret-token"; got != want {
 		t.Fatalf("codec auth = %q, want %q", got, want)
+	}
+	if got, want := expanded.Codec.Headers["X-Codec-Auth"], "Bearer secret-token"; got != want {
+		t.Fatalf("codec header = %q, want %q", got, want)
 	}
 }
 
