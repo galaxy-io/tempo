@@ -41,6 +41,8 @@ A [Temporal](https://temporal.io) TUI that matches your rhythm
 
 - Save multiple Temporal server configurations
 - TLS/mTLS support with certificate paths
+- Remote payload codec support
+- Import Temporal CLI environments
 - Quick profile switching with `P` key
 
 **Customization**
@@ -91,6 +93,9 @@ tempo --address localhost:7233 // default dev server address loads without flag
 | `--tls-ca`          | Path to CA certificate                |
 | `--tls-server-name` | Server name for TLS verification      |
 | `--tls-skip-verify` | Skip TLS verification (insecure)      |
+| `--codec-endpoint`  | Remote payload codec endpoint          |
+| `--codec-auth`      | Authorization header for codec requests |
+| `--codec-header`    | Codec request header (`KEY=VALUE`, repeatable) |
 | `--theme`           | Theme name                            |
 
 ### Keybindings
@@ -140,7 +145,23 @@ profiles:
       cert: /path/to/client.pem
       key: /path/to/client-key.pem
       ca: /path/to/ca.pem
+    codec:
+      endpoint: https://codec.example.com/{namespace}
+      auth: ${TEMPO_CODEC_AUTH}
+      headers:
+        X-Codec-Tenant: payments
 ```
+
+The optional `{namespace}` placeholder in a codec endpoint is replaced with the active namespace.
+Tempo sends the namespace in the `X-Namespace` header, passes `codec.auth` as the
+`Authorization` header, and includes any entries from `codec.headers`. Environment variables in
+codec settings are expanded when a profile is loaded, which keeps credentials out of this file.
+
+Tempo also discovers environments from the Temporal CLI's legacy
+`~/.config/temporalio/temporal.yaml` file and its current TOML configuration. The TOML path comes
+from `TEMPORAL_CONFIG_FILE` when set, then falls back to the platform-specific user configuration
+directory. Imported environments appear as read-only profiles named `import:<environment>`.
+Address, namespace, TLS, API key, and codec settings are reloaded each time Tempo starts.
 
 ## Themes
 

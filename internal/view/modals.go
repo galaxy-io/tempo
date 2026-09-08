@@ -99,10 +99,10 @@ func (m *SplashModal) InputHandler() func(*tcell.EventKey, func(tview.Primitive)
 // HelpModal displays help information with view-specific keybindings.
 type HelpModal struct {
 	*components.Modal
-	viewName    string
-	viewHints   []KeyHint
-	content     *tview.TextView
-	closeFunc   func() // Direct close callback
+	viewName  string
+	viewHints []KeyHint
+	content   *tview.TextView
+	closeFunc func() // Direct close callback
 }
 
 func NewHelpModal() *HelpModal {
@@ -543,14 +543,21 @@ func (f *ProfileForm) buildForm(name string, cfg config.ConnectionConfig, isEdit
 			Address:   values["address"].(string),
 			Namespace: values["namespace"].(string),
 			TLS: config.TLSConfig{
+				Enabled:    cfg.TLS.Enabled,
+				Disabled:   cfg.TLS.Disabled,
 				Cert:       values["tlsCert"].(string),
+				CertData:   cfg.TLS.CertData,
 				Key:        values["tlsKey"].(string),
+				KeyData:    cfg.TLS.KeyData,
 				CA:         values["tlsCA"].(string),
+				CAData:     cfg.TLS.CAData,
 				ServerName: values["tlsServerName"].(string),
 				SkipVerify: skipVerify,
 			},
-			APIKey:   cfg.APIKey,
-			GRPCMeta: cfg.GRPCMeta,
+			APIKey:    cfg.APIKey,
+			GRPCMeta:  cfg.GRPCMeta,
+			Authority: cfg.Authority,
+			Codec:     cfg.Codec,
 		}
 
 		if f.onSave != nil {

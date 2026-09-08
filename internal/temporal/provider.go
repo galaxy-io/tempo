@@ -3,6 +3,8 @@ package temporal
 import (
 	"context"
 	"time"
+
+	"github.com/galaxy-io/tempo/internal/config"
 )
 
 // Provider defines the interface for Temporal data access.
@@ -293,13 +295,46 @@ type ScheduleRun struct {
 type ConnectionConfig struct {
 	Address       string
 	Namespace     string
+	TLSEnabled    bool
+	TLSDisabled   bool
 	TLSCertPath   string
+	TLSCertData   string
 	TLSKeyPath    string
+	TLSKeyData    string
 	TLSCAPath     string
+	TLSCAData     string
 	TLSServerName string
 	TLSSkipVerify bool
 	APIKey        string            // For Temporal Cloud API key authentication
 	GRPCMeta      map[string]string // Custom gRPC metadata headers attached to every request
+	Authority     string
+	CodecEndpoint string
+	CodecAuth     string
+	CodecHeaders  map[string]string
+}
+
+// ConnectionConfigFromProfile translates an application profile into SDK connection settings.
+func ConnectionConfigFromProfile(profile config.ConnectionConfig) ConnectionConfig {
+	return ConnectionConfig{
+		Address:       profile.Address,
+		Namespace:     profile.Namespace,
+		TLSEnabled:    profile.TLS.Enabled,
+		TLSDisabled:   profile.TLS.Disabled,
+		TLSCertPath:   profile.TLS.Cert,
+		TLSCertData:   profile.TLS.CertData,
+		TLSKeyPath:    profile.TLS.Key,
+		TLSKeyData:    profile.TLS.KeyData,
+		TLSCAPath:     profile.TLS.CA,
+		TLSCAData:     profile.TLS.CAData,
+		TLSServerName: profile.TLS.ServerName,
+		TLSSkipVerify: profile.TLS.SkipVerify,
+		APIKey:        profile.APIKey,
+		GRPCMeta:      profile.GRPCMeta,
+		Authority:     profile.Authority,
+		CodecEndpoint: profile.Codec.Endpoint,
+		CodecAuth:     profile.Codec.Auth,
+		CodecHeaders:  profile.Codec.Headers,
+	}
 }
 
 // DefaultConnectionConfig returns default connection settings.

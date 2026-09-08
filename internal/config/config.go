@@ -12,11 +12,23 @@ import (
 
 // TLSConfig holds TLS connection settings.
 type TLSConfig struct {
+	Enabled    bool   `yaml:"enabled,omitempty"`
+	Disabled   bool   `yaml:"disabled,omitempty"`
 	Cert       string `yaml:"cert,omitempty"`
+	CertData   string `yaml:"cert_data,omitempty"`
 	Key        string `yaml:"key,omitempty"`
+	KeyData    string `yaml:"key_data,omitempty"`
 	CA         string `yaml:"ca,omitempty"`
+	CAData     string `yaml:"ca_data,omitempty"`
 	ServerName string `yaml:"server_name,omitempty"`
 	SkipVerify bool   `yaml:"skip_verify,omitempty"`
+}
+
+// CodecConfig holds remote payload codec settings.
+type CodecConfig struct {
+	Endpoint string            `yaml:"endpoint,omitempty"`
+	Auth     string            `yaml:"auth,omitempty"`
+	Headers  map[string]string `yaml:"headers,omitempty"`
 }
 
 // CommandOutputType defines how command output should be displayed.
@@ -39,12 +51,14 @@ type CommandConfig struct {
 
 // ConnectionConfig holds Temporal connection settings.
 type ConnectionConfig struct {
-	Address   string                    `yaml:"address"`
-	Namespace string                    `yaml:"namespace"`
-	TLS       TLSConfig                 `yaml:"tls,omitempty"`
-	APIKey    string                    `yaml:"api_key,omitempty"` // For Temporal Cloud API key authentication
-	GRPCMeta  map[string]string         `yaml:"grpc_meta,omitempty"` // Custom gRPC metadata headers (KEY=VALUE pairs)
-	Commands  map[string]CommandConfig  `yaml:"commands,omitempty"`
+	Address   string                   `yaml:"address"`
+	Namespace string                   `yaml:"namespace"`
+	TLS       TLSConfig                `yaml:"tls,omitempty"`
+	Codec     CodecConfig              `yaml:"codec,omitempty"`
+	APIKey    string                   `yaml:"api_key,omitempty"`   // For Temporal Cloud API key authentication
+	GRPCMeta  map[string]string        `yaml:"grpc_meta,omitempty"` // Custom gRPC metadata headers (KEY=VALUE pairs)
+	Authority string                   `yaml:"authority,omitempty"`
+	Commands  map[string]CommandConfig `yaml:"commands,omitempty"`
 }
 
 // ExpandEnv expands environment variables in sensitive fields.
@@ -54,8 +68,19 @@ func (c ConnectionConfig) ExpandEnv() ConnectionConfig {
 		Address:   c.Address,
 		Namespace: c.Namespace,
 		TLS:       c.TLS,
+		Codec: CodecConfig{
+			Endpoint: expandEnvVar(c.Codec.Endpoint),
+			Auth:     expandEnvVar(c.Codec.Auth),
+		},
 		APIKey:    expandEnvVar(c.APIKey),
+		Authority: c.Authority,
 		Commands:  c.Commands,
+	}
+	if len(c.Codec.Headers) > 0 {
+		expanded.Codec.Headers = make(map[string]string, len(c.Codec.Headers))
+		for k, v := range c.Codec.Headers {
+			expanded.Codec.Headers[k] = expandEnvVar(v)
+		}
 	}
 	if len(c.GRPCMeta) > 0 {
 		expanded.GRPCMeta = make(map[string]string, len(c.GRPCMeta))
@@ -178,11 +203,12 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("parsing config: %w", err)
 	}
 
-	// Ensure profiles and active profile are set
-	cfg.ensureDefaults()
-
 	// Load external profiles from Temporal CLI config
 	cfg.loadExternalProfiles()
+
+	// Ensure profiles and active profile are set after all profile sources have
+	// been loaded so a persisted external profile remains valid.
+	cfg.ensureDefaults()
 
 	return cfg, nil
 }
@@ -209,7 +235,6 @@ func (c *Config) ensureDefaults() {
 				Namespace: "default",
 			},
 		}
-		c.ActiveProfile = "default"
 	}
 
 	// Ensure ActiveProfile is set and valid
@@ -218,7 +243,7 @@ func (c *Config) ensureDefaults() {
 			c.ActiveProfile = name
 			break
 		}
-	} else if _, ok := c.Profiles[c.ActiveProfile]; !ok {
+	} else if _, ok := c.GetProfile(c.ActiveProfile); !ok {
 		// Active profile doesn't exist, use first available
 		for name := range c.Profiles {
 			c.ActiveProfile = name

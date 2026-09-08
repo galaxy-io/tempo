@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,6 +24,8 @@ import (
 	"go.temporal.io/api/taskqueue/v1"
 	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/client"
+	"go.temporal.io/sdk/converter"
+	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
@@ -94,30 +97,9 @@ func NewClient(ctx context.Context, connConfig ConnectionConfig) (*Client, error
 	// Redirect logs to file instead of stdout
 	initLogFile()
 
-	opts := client.Options{
-		HostPort:  connConfig.Address,
-		Namespace: connConfig.Namespace,
-		Logger:    sdkLogger,
-	}
-
-	// Configure authentication
-	if connConfig.APIKey != "" {
-		// API Key authentication (Temporal Cloud)
-		opts.Credentials = client.NewAPIKeyStaticCredentials(connConfig.APIKey)
-		// API key auth requires TLS but doesn't need client certificates
-		opts.ConnectionOptions.TLS = &tls.Config{}
-	} else if connConfig.TLSCertPath != "" || connConfig.TLSCAPath != "" || connConfig.TLSSkipVerify {
-		// mTLS authentication
-		tlsConfig, err := buildTLSConfig(connConfig)
-		if err != nil {
-			return nil, fmt.Errorf("failed to configure TLS: %w", err)
-		}
-		opts.ConnectionOptions.TLS = tlsConfig
-	}
-
-	// Attach custom gRPC metadata headers if configured
-	if len(connConfig.GRPCMeta) > 0 {
-		opts.HeadersProvider = &staticHeadersProvider{headers: connConfig.GRPCMeta}
+	opts, err := buildClientOptions(connConfig)
+	if err != nil {
+		return nil, err
 	}
 
 	c, err := client.DialContext(ctx, opts)
@@ -132,6 +114,91 @@ func NewClient(ctx context.Context, connConfig ConnectionConfig) (*Client, error
 	}, nil
 }
 
+func buildClientOptions(connConfig ConnectionConfig) (client.Options, error) {
+	opts := client.Options{
+		HostPort:  connConfig.Address,
+		Namespace: connConfig.Namespace,
+		Logger:    sdkLogger,
+	}
+
+	if connConfig.APIKey != "" {
+		opts.Credentials = client.NewAPIKeyStaticCredentials(connConfig.APIKey)
+	}
+	if connConfig.Authority != "" {
+		opts.ConnectionOptions.Authority = connConfig.Authority
+	}
+
+	if connConfig.TLSDisabled {
+		opts.ConnectionOptions.TLS = nil
+	} else if connConfig.TLSEnabled || connConfig.APIKey != "" || hasTLSSettings(connConfig) {
+		tlsConfig, err := buildTLSConfig(connConfig)
+		if err != nil {
+			return client.Options{}, fmt.Errorf("failed to configure TLS: %w", err)
+		}
+		opts.ConnectionOptions.TLS = tlsConfig
+	}
+
+	if len(connConfig.GRPCMeta) > 0 {
+		opts.HeadersProvider = &staticHeadersProvider{headers: connConfig.GRPCMeta}
+	}
+
+	if connConfig.CodecEndpoint != "" {
+		opts.ConnectionOptions.DialOptions = append(
+			opts.ConnectionOptions.DialOptions,
+			grpc.WithChainUnaryInterceptor(newPayloadCodecInterceptor(connConfig)),
+		)
+	}
+
+	return opts, nil
+}
+
+func newPayloadCodecInterceptor(connConfig ConnectionConfig) grpc.UnaryClientInterceptor {
+	return func(
+		ctx context.Context,
+		method string,
+		req, reply any,
+		cc *grpc.ClientConn,
+		invoker grpc.UnaryInvoker,
+		opts ...grpc.CallOption,
+	) error {
+		namespace := connConfig.Namespace
+		if namespaced, ok := req.(interface{ GetNamespace() string }); ok && namespaced.GetNamespace() != "" {
+			namespace = namespaced.GetNamespace()
+		}
+
+		codecEndpoint := strings.ReplaceAll(connConfig.CodecEndpoint, "{namespace}", namespace)
+		payloadCodec := converter.NewRemotePayloadCodec(converter.RemotePayloadCodecOptions{
+			Endpoint: codecEndpoint,
+			ModifyRequest: func(req *http.Request) error {
+				req.Header.Set("X-Namespace", namespace)
+				for headerName, headerValue := range connConfig.CodecHeaders {
+					req.Header.Set(headerName, headerValue)
+				}
+				if connConfig.CodecAuth != "" {
+					req.Header.Set("Authorization", connConfig.CodecAuth)
+				}
+				return nil
+			},
+		})
+		interceptor, err := converter.NewPayloadCodecGRPCClientInterceptor(
+			converter.PayloadCodecGRPCClientInterceptorOptions{
+				Codecs: []converter.PayloadCodec{payloadCodec},
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("failed to configure payload codec: %w", err)
+		}
+		return interceptor(ctx, method, req, reply, cc, invoker, opts...)
+	}
+}
+
+func hasTLSSettings(config ConnectionConfig) bool {
+	return config.TLSCertPath != "" || config.TLSCertData != "" ||
+		config.TLSKeyPath != "" || config.TLSKeyData != "" ||
+		config.TLSCAPath != "" || config.TLSCAData != "" ||
+		config.TLSServerName != "" || config.TLSSkipVerify
+}
+
 // buildTLSConfig creates a TLS configuration from the connection config.
 func buildTLSConfig(config ConnectionConfig) (*tls.Config, error) {
 	tlsConfig := &tls.Config{
@@ -142,8 +209,23 @@ func buildTLSConfig(config ConnectionConfig) (*tls.Config, error) {
 		tlsConfig.ServerName = config.TLSServerName
 	}
 
-	// Load client certificate if provided
-	if config.TLSCertPath != "" && config.TLSKeyPath != "" {
+	// Load client certificate data if provided.
+	if config.TLSCertData != "" || config.TLSKeyData != "" {
+		if config.TLSCertData == "" || config.TLSKeyData == "" {
+			return nil, fmt.Errorf("both client certificate and key data are required")
+		}
+		if config.TLSCertPath != "" || config.TLSKeyPath != "" {
+			return nil, fmt.Errorf("client certificate and key paths cannot be combined with inline data")
+		}
+		cert, err := tls.X509KeyPair([]byte(config.TLSCertData), []byte(config.TLSKeyData))
+		if err != nil {
+			return nil, fmt.Errorf("failed to load client certificate data: %w", err)
+		}
+		tlsConfig.Certificates = []tls.Certificate{cert}
+	} else if config.TLSCertPath != "" || config.TLSKeyPath != "" {
+		if config.TLSCertPath == "" || config.TLSKeyPath == "" {
+			return nil, fmt.Errorf("both client certificate and key paths are required")
+		}
 		cert, err := tls.LoadX509KeyPair(config.TLSCertPath, config.TLSKeyPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load client certificate: %w", err)
@@ -151,9 +233,16 @@ func buildTLSConfig(config ConnectionConfig) (*tls.Config, error) {
 		tlsConfig.Certificates = []tls.Certificate{cert}
 	}
 
-	// Load CA certificate if provided
-	if config.TLSCAPath != "" {
-		caCert, err := os.ReadFile(config.TLSCAPath)
+	// Load CA certificate if provided.
+	if config.TLSCAData != "" || config.TLSCAPath != "" {
+		if config.TLSCAData != "" && config.TLSCAPath != "" {
+			return nil, fmt.Errorf("CA certificate path cannot be combined with inline data")
+		}
+		caCert := []byte(config.TLSCAData)
+		var err error
+		if len(caCert) == 0 {
+			caCert, err = os.ReadFile(config.TLSCAPath)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("failed to read CA certificate: %w", err)
 		}
@@ -198,11 +287,7 @@ func (c *Client) CheckConnection(ctx context.Context) error {
 		return fmt.Errorf("client is nil")
 	}
 
-	// Make a lightweight API call to check connection
-	// ListNamespaces with PageSize 1 is a good health check
-	_, err := cl.WorkflowService().ListNamespaces(ctx, &workflowservice.ListNamespacesRequest{
-		PageSize: 1,
-	})
+	_, err := cl.CheckHealth(ctx, &client.CheckHealthRequest{})
 	if err != nil {
 		c.mu.Lock()
 		c.connected = false
@@ -241,30 +326,9 @@ func (c *Client) reconnectWithConfig(ctx context.Context, connConfig ConnectionC
 	c.connected = false
 	c.mu.Unlock()
 
-	opts := client.Options{
-		HostPort:  connConfig.Address,
-		Namespace: connConfig.Namespace,
-		Logger:    sdkLogger,
-	}
-
-	// Configure authentication
-	if connConfig.APIKey != "" {
-		// API Key authentication (Temporal Cloud)
-		opts.Credentials = client.NewAPIKeyStaticCredentials(connConfig.APIKey)
-		// API key auth requires TLS but doesn't need client certificates
-		opts.ConnectionOptions.TLS = &tls.Config{}
-	} else if connConfig.TLSCertPath != "" || connConfig.TLSCAPath != "" || connConfig.TLSSkipVerify {
-		// mTLS authentication
-		tlsConfig, err := buildTLSConfig(connConfig)
-		if err != nil {
-			return fmt.Errorf("failed to configure TLS: %w", err)
-		}
-		opts.ConnectionOptions.TLS = tlsConfig
-	}
-
-	// Attach custom gRPC metadata headers if configured
-	if len(connConfig.GRPCMeta) > 0 {
-		opts.HeadersProvider = &staticHeadersProvider{headers: connConfig.GRPCMeta}
+	opts, err := buildClientOptions(connConfig)
+	if err != nil {
+		return err
 	}
 
 	newClient, err := client.DialContext(ctx, opts)
