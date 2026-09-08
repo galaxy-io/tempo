@@ -48,6 +48,7 @@ release:
   github:
     owner: galaxy-io
     name: tempo
+  target_commitish: "{{ .Commit }}"
   draft: false
   prerelease: auto
 
