@@ -189,11 +189,12 @@ func Load() (*Config, error) {
 		return nil, fmt.Errorf("parsing config: %w", err)
 	}
 
-	// Ensure profiles and active profile are set
-	cfg.ensureDefaults()
-
 	// Load external profiles from Temporal CLI config
 	cfg.loadExternalProfiles()
+
+	// Ensure profiles and active profile are set after all profile sources have
+	// been loaded so a persisted external profile remains valid.
+	cfg.ensureDefaults()
 
 	return cfg, nil
 }
@@ -220,7 +221,6 @@ func (c *Config) ensureDefaults() {
 				Namespace: "default",
 			},
 		}
-		c.ActiveProfile = "default"
 	}
 
 	// Ensure ActiveProfile is set and valid
@@ -229,7 +229,7 @@ func (c *Config) ensureDefaults() {
 			c.ActiveProfile = name
 			break
 		}
-	} else if _, ok := c.Profiles[c.ActiveProfile]; !ok {
+	} else if _, ok := c.GetProfile(c.ActiveProfile); !ok {
 		// Active profile doesn't exist, use first available
 		for name := range c.Profiles {
 			c.ActiveProfile = name
