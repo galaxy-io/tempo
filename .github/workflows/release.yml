@@ -1,36 +1,111 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
+    inputs:
+      type:
+        description: Release type
+        required: true
+        default: patch
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      prerelease:
+        description: Publish as an RC prerelease
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
   goreleaser:
     runs-on: ubuntu-latest
     steps:
-      - name: Generate GitHub Token
-        id: app-token
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Determine release version
+        id: version
+        shell: bash
+        env:
+          PRERELEASE: ${{ inputs.prerelease }}
+          RELEASE_TYPE: ${{ inputs.type }}
+        run: |
+          set -euo pipefail
+
+          stable_tag=$(git tag --list | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort --version-sort | tail -n 1 || true)
+          if [[ -z "$stable_tag" ]]; then
+            echo "No stable version tag found"
+            exit 1
+          fi
+
+          IFS=. read -r major minor patch <<< "${stable_tag#v}"
+
+          case "$RELEASE_TYPE" in
+            patch)
+              base_tag="v${major}.${minor}.$((patch + 1))"
+              ;;
+            minor)
+              base_tag="v${major}.$((minor + 1)).0"
+              ;;
+            major)
+              base_tag="v$((major + 1)).0.0"
+              ;;
+            *)
+              echo "Unsupported release type: $RELEASE_TYPE"
+              exit 1
+              ;;
+          esac
+
+          tag="$base_tag"
+          if [[ "$PRERELEASE" == "true" ]]; then
+            latest_rc=0
+            while IFS= read -r candidate; do
+              rc_number="${candidate##*.}"
+              if [[ "$rc_number" =~ ^[0-9]+$ ]] && ((rc_number > latest_rc)); then
+                latest_rc=$rc_number
+              fi
+            done < <(git tag --list "${base_tag}-rc.*")
+            tag="${base_tag}-rc.$((latest_rc + 1))"
+          fi
+
+          if git rev-parse --verify --quiet "refs/tags/$tag"; then
+            echo "Tag already exists: $tag"
+            exit 1
+          fi
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Creating $tag from $(git rev-parse HEAD)"
+
+      - name: Create release tag
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: git tag "$TAG"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Mint Token
+        id: releaser
         uses: actions/create-github-app-token@v2
         with:
           app-id: ${{ secrets.GX_NULL_APP_ID }}
           private-key: ${{ secrets.GX_NULL_PRIVATE_KEY }}
           owner: galaxy-io
           repositories: homebrew-tap
-
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.23'
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
@@ -40,4 +115,4 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HOMEBREW_TAP_TOKEN: ${{ steps.app-token.outputs.token }}
+          HOMEBREW_TAP_TOKEN: ${{ steps.releaser.outputs.token }}

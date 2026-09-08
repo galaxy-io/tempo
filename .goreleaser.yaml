@@ -48,23 +48,27 @@ release:
   github:
     owner: galaxy-io
     name: tempo
+  target_commitish: "{{ .Commit }}"
   draft: false
   prerelease: auto
 
-brews:
+homebrew_casks:
   - name: tempo
     repository:
       owner: galaxy-io
       name: homebrew-tap
       token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Casks
     commit_author:
       name: gx-null[bot]
       email: 286761379+gx-null[bot]@users.noreply.github.com
-    directory: Formula
     homepage: "https://github.com/galaxy-io/tempo"
-    description: "TUI Client for Temporal"
-    license: "MIT"
-    install: |
-      bin.install "tempo"
-    test: |
-      system "#{bin}/tempo", "--version"
+    description: "Keyboard-driven terminal client for inspecting and controlling Temporal workflows"
+    binaries:
+      - tempo
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/tempo"]
+          end
