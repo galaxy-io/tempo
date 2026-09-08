@@ -12,9 +12,14 @@ import (
 
 // TLSConfig holds TLS connection settings.
 type TLSConfig struct {
+	Enabled    bool   `yaml:"enabled,omitempty"`
+	Disabled   bool   `yaml:"disabled,omitempty"`
 	Cert       string `yaml:"cert,omitempty"`
+	CertData   string `yaml:"cert_data,omitempty"`
 	Key        string `yaml:"key,omitempty"`
+	KeyData    string `yaml:"key_data,omitempty"`
 	CA         string `yaml:"ca,omitempty"`
+	CAData     string `yaml:"ca_data,omitempty"`
 	ServerName string `yaml:"server_name,omitempty"`
 	SkipVerify bool   `yaml:"skip_verify,omitempty"`
 }
@@ -52,6 +57,7 @@ type ConnectionConfig struct {
 	Codec     CodecConfig              `yaml:"codec,omitempty"`
 	APIKey    string                   `yaml:"api_key,omitempty"`   // For Temporal Cloud API key authentication
 	GRPCMeta  map[string]string        `yaml:"grpc_meta,omitempty"` // Custom gRPC metadata headers (KEY=VALUE pairs)
+	Authority string                   `yaml:"authority,omitempty"`
 	Commands  map[string]CommandConfig `yaml:"commands,omitempty"`
 }
 
@@ -66,8 +72,9 @@ func (c ConnectionConfig) ExpandEnv() ConnectionConfig {
 			Endpoint: expandEnvVar(c.Codec.Endpoint),
 			Auth:     expandEnvVar(c.Codec.Auth),
 		},
-		APIKey:   expandEnvVar(c.APIKey),
-		Commands: c.Commands,
+		APIKey:    expandEnvVar(c.APIKey),
+		Authority: c.Authority,
+		Commands:  c.Commands,
 	}
 	if len(c.Codec.Headers) > 0 {
 		expanded.Codec.Headers = make(map[string]string, len(c.Codec.Headers))

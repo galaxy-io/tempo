@@ -123,8 +123,14 @@ func buildClientOptions(connConfig ConnectionConfig) (client.Options, error) {
 
 	if connConfig.APIKey != "" {
 		opts.Credentials = client.NewAPIKeyStaticCredentials(connConfig.APIKey)
-		opts.ConnectionOptions.TLS = &tls.Config{}
-	} else if connConfig.TLSCertPath != "" || connConfig.TLSCAPath != "" || connConfig.TLSSkipVerify {
+	}
+	if connConfig.Authority != "" {
+		opts.ConnectionOptions.Authority = connConfig.Authority
+	}
+
+	if connConfig.TLSDisabled {
+		opts.ConnectionOptions.TLS = nil
+	} else if connConfig.TLSEnabled || connConfig.APIKey != "" || hasTLSSettings(connConfig) {
 		tlsConfig, err := buildTLSConfig(connConfig)
 		if err != nil {
 			return client.Options{}, fmt.Errorf("failed to configure TLS: %w", err)
@@ -186,6 +192,13 @@ func newPayloadCodecInterceptor(connConfig ConnectionConfig) grpc.UnaryClientInt
 	}
 }
 
+func hasTLSSettings(config ConnectionConfig) bool {
+	return config.TLSCertPath != "" || config.TLSCertData != "" ||
+		config.TLSKeyPath != "" || config.TLSKeyData != "" ||
+		config.TLSCAPath != "" || config.TLSCAData != "" ||
+		config.TLSServerName != "" || config.TLSSkipVerify
+}
+
 // buildTLSConfig creates a TLS configuration from the connection config.
 func buildTLSConfig(config ConnectionConfig) (*tls.Config, error) {
 	tlsConfig := &tls.Config{
@@ -196,8 +209,23 @@ func buildTLSConfig(config ConnectionConfig) (*tls.Config, error) {
 		tlsConfig.ServerName = config.TLSServerName
 	}
 
-	// Load client certificate if provided
-	if config.TLSCertPath != "" && config.TLSKeyPath != "" {
+	// Load client certificate data if provided.
+	if config.TLSCertData != "" || config.TLSKeyData != "" {
+		if config.TLSCertData == "" || config.TLSKeyData == "" {
+			return nil, fmt.Errorf("both client certificate and key data are required")
+		}
+		if config.TLSCertPath != "" || config.TLSKeyPath != "" {
+			return nil, fmt.Errorf("client certificate and key paths cannot be combined with inline data")
+		}
+		cert, err := tls.X509KeyPair([]byte(config.TLSCertData), []byte(config.TLSKeyData))
+		if err != nil {
+			return nil, fmt.Errorf("failed to load client certificate data: %w", err)
+		}
+		tlsConfig.Certificates = []tls.Certificate{cert}
+	} else if config.TLSCertPath != "" || config.TLSKeyPath != "" {
+		if config.TLSCertPath == "" || config.TLSKeyPath == "" {
+			return nil, fmt.Errorf("both client certificate and key paths are required")
+		}
 		cert, err := tls.LoadX509KeyPair(config.TLSCertPath, config.TLSKeyPath)
 		if err != nil {
 			return nil, fmt.Errorf("failed to load client certificate: %w", err)
@@ -205,9 +233,16 @@ func buildTLSConfig(config ConnectionConfig) (*tls.Config, error) {
 		tlsConfig.Certificates = []tls.Certificate{cert}
 	}
 
-	// Load CA certificate if provided
-	if config.TLSCAPath != "" {
-		caCert, err := os.ReadFile(config.TLSCAPath)
+	// Load CA certificate if provided.
+	if config.TLSCAData != "" || config.TLSCAPath != "" {
+		if config.TLSCAData != "" && config.TLSCAPath != "" {
+			return nil, fmt.Errorf("CA certificate path cannot be combined with inline data")
+		}
+		caCert := []byte(config.TLSCAData)
+		var err error
+		if len(caCert) == 0 {
+			caCert, err = os.ReadFile(config.TLSCAPath)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("failed to read CA certificate: %w", err)
 		}

@@ -295,13 +295,19 @@ type ScheduleRun struct {
 type ConnectionConfig struct {
 	Address       string
 	Namespace     string
+	TLSEnabled    bool
+	TLSDisabled   bool
 	TLSCertPath   string
+	TLSCertData   string
 	TLSKeyPath    string
+	TLSKeyData    string
 	TLSCAPath     string
+	TLSCAData     string
 	TLSServerName string
 	TLSSkipVerify bool
 	APIKey        string            // For Temporal Cloud API key authentication
 	GRPCMeta      map[string]string // Custom gRPC metadata headers attached to every request
+	Authority     string
 	CodecEndpoint string
 	CodecAuth     string
 	CodecHeaders  map[string]string
@@ -312,13 +318,19 @@ func ConnectionConfigFromProfile(profile config.ConnectionConfig) ConnectionConf
 	return ConnectionConfig{
 		Address:       profile.Address,
 		Namespace:     profile.Namespace,
+		TLSEnabled:    profile.TLS.Enabled,
+		TLSDisabled:   profile.TLS.Disabled,
 		TLSCertPath:   profile.TLS.Cert,
+		TLSCertData:   profile.TLS.CertData,
 		TLSKeyPath:    profile.TLS.Key,
+		TLSKeyData:    profile.TLS.KeyData,
 		TLSCAPath:     profile.TLS.CA,
+		TLSCAData:     profile.TLS.CAData,
 		TLSServerName: profile.TLS.ServerName,
 		TLSSkipVerify: profile.TLS.SkipVerify,
 		APIKey:        profile.APIKey,
 		GRPCMeta:      profile.GRPCMeta,
+		Authority:     profile.Authority,
 		CodecEndpoint: profile.Codec.Endpoint,
 		CodecAuth:     profile.Codec.Auth,
 		CodecHeaders:  profile.Codec.Headers,

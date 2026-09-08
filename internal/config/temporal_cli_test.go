@@ -61,9 +61,115 @@ auth = "Bearer secret-token"
 	}
 }
 
+func TestLoadTemporalProfileTOMLImportsCurrentConnectionSchema(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "temporal.toml")
+	contents := []byte(`[profile.production]
+address = "production.example.com:7233"
+namespace = "production"
+api_key = "secret"
+authority = "temporal.internal"
+grpc_meta = { x_team = "payments", Trace_ID = "1234" }
+
+[profile.production.tls]
+disabled = false
+client_cert_data = "certificate data"
+client_key_data = "key data"
+server_ca_cert_path = "/tmp/temporal-ca.pem"
+server_name = "temporal.example.com"
+disable_host_verification = true
+`)
+	if err := os.WriteFile(path, contents, 0o600); err != nil {
+		t.Fatalf("write Temporal CLI profile: %v", err)
+	}
+
+	profiles, err := loadTemporalProfileTOML(path)
+	if err != nil {
+		t.Fatalf("load Temporal CLI profile: %v", err)
+	}
+
+	profile := profiles["production"]
+	if !profile.TLS.Enabled {
+		t.Fatal("TLS table presence was not imported")
+	}
+	if got, want := profile.TLS.CertData, "certificate data"; got != want {
+		t.Fatalf("TLS cert data = %q, want %q", got, want)
+	}
+	if got, want := profile.TLS.KeyData, "key data"; got != want {
+		t.Fatalf("TLS key data = %q, want %q", got, want)
+	}
+	if got, want := profile.TLS.CA, "/tmp/temporal-ca.pem"; got != want {
+		t.Fatalf("TLS CA path = %q, want %q", got, want)
+	}
+	if !profile.TLS.SkipVerify {
+		t.Fatal("TLS host verification setting was not imported")
+	}
+	if got, want := profile.Authority, "temporal.internal"; got != want {
+		t.Fatalf("authority = %q, want %q", got, want)
+	}
+	if got, want := profile.GRPCMeta["x-team"], "payments"; got != want {
+		t.Fatalf("normalized gRPC metadata = %q, want %q", got, want)
+	}
+	if got, want := profile.GRPCMeta["trace-id"], "1234"; got != want {
+		t.Fatalf("normalized gRPC metadata = %q, want %q", got, want)
+	}
+}
+
+func TestLoadTemporalProfileTOMLPreservesExplicitBaseTLS(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "temporal.toml")
+	contents := []byte(`[profile.secure]
+address = "secure.example.com:7233"
+
+[profile.secure.tls]
+disabled = false
+`)
+	if err := os.WriteFile(path, contents, 0o600); err != nil {
+		t.Fatalf("write Temporal CLI profile: %v", err)
+	}
+
+	profiles, err := loadTemporalProfileTOML(path)
+	if err != nil {
+		t.Fatalf("load Temporal CLI profile: %v", err)
+	}
+
+	if !profiles["secure"].TLS.Enabled {
+		t.Fatal("explicit TLS table without certificate settings was not preserved")
+	}
+}
+
+func TestLoadTemporalProfileTOMLImportsInlineServerCAAndTLSDisabled(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "temporal.toml")
+	contents := []byte(`[profile.local]
+address = "localhost:7233"
+
+[profile.local.tls]
+disabled = true
+server_ca_cert_data = "CA data"
+`)
+	if err := os.WriteFile(path, contents, 0o600); err != nil {
+		t.Fatalf("write Temporal CLI profile: %v", err)
+	}
+
+	profiles, err := loadTemporalProfileTOML(path)
+	if err != nil {
+		t.Fatalf("load Temporal CLI profile: %v", err)
+	}
+
+	profile := profiles["local"]
+	if !profile.TLS.Disabled {
+		t.Fatal("explicit TLS disablement was not imported")
+	}
+	if got, want := profile.TLS.CAData, "CA data"; got != want {
+		t.Fatalf("TLS CA data = %q, want %q", got, want)
+	}
+}
+
 func TestLoadTemporalCLIProfilesUsesConfigFileOverride(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
+	// A direct config-file override must not depend on resolving a home
+	// directory, which is only needed for the legacy YAML environment file.
+	t.Setenv("HOME", "")
+	t.Setenv("USERPROFILE", "")
+	t.Setenv("HOMEDRIVE", "")
+	t.Setenv("HOMEPATH", "")
 	path := filepath.Join(t.TempDir(), "custom-temporal.toml")
 	t.Setenv("TEMPORAL_CONFIG_FILE", path)
 	contents := []byte(`[profile.production]
