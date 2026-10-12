@@ -63,7 +63,7 @@ homebrew_casks:
       name: gx-null[bot]
       email: 286761379+gx-null[bot]@users.noreply.github.com
     homepage: "https://github.com/galaxy-io/tempo"
-    description: "Keyboard-driven terminal client for inspecting and controlling Temporal workflows"
+    description: "Keyboard-driven terminal client to inspect and control Temporal workflows"
     binaries:
       - tempo
     hooks:
